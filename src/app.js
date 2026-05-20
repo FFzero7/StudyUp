@@ -460,13 +460,26 @@
     `;
   };
 
-  const botAnswer = (message, inputKind = "Text") => {
-    const lower = message.toLowerCase();
-    if (["lös", "lösung", "antwort", "fertig"].some((word) => lower.includes(word))) return "Ich gebe dir nicht die fertige Lösung. Was hast du schon versucht?";
-    if (["mathe", "formel", "funktion", "gleichung"].some((word) => lower.includes(word))) return "Welche Formel könnte passen? Schreibe nur den ersten Schritt.";
-    return `Ich gebe dir einen Tipp: Teile die Aufgabe in gegeben, gesucht und erster Schritt. (${inputKind})`;
-  };
+const askStudyUpAI = async (message, attachment) => {
+  const response = await fetch("/api/chat", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      message: message || attachment || "Help me with homework",
+      attachmentName: attachment || ""
+    })
+  });
 
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "AI request failed");
+  }
+
+  return data.answer || "Sorry, I could not make an answer.";
+};
   const renderBot = () => {
     const messages = state.chat.length ? state.chat : [{ id: "intro", role: "bot", text: "Stell deine Frage. Ich helfe dir Schritt für Schritt, ohne dir einfach die fertige Lösung zu geben." }];
     return `
@@ -716,7 +729,7 @@
         save();
         render();
       }));
-      document.querySelector("#toggle-card-create")?.addEventListener("click", () => {
+     document.querySelector("#chat-form")?.addEventListener("submit", async (event) => {
         state.ui.cardCreateOpen = !state.ui.cardCreateOpen;
         save();
         render();
@@ -772,7 +785,7 @@
           state.chat.push({ id: uid("msg"), role: "bot", text: "Basis-Limit erreicht: 5 AI-Fragen sind genutzt." });
         } else {
           state.chat.push({ id: uid("msg"), role: "user", text: `${message || "Foto-Frage"}${attachment ? ` [Foto: ${attachment}]` : ""}` });
-          state.chat.push({ id: uid("msg"), role: "bot", text: botAnswer(message || attachment, attachment ? "Foto" : "Text") });
+          state.chat.push({ id: uid("msg"), role: "bot", text: "StudyUp AI denkt …" }); const botMessage = state.chat[state.chat.length - 1];  try {   botMessage.text = await askStudyUpAI(message, attachment); } catch (error) {   botMessage.text = "AI error: " + error.message; }
           if (!state.settings.premiumActive) state.settings.aiQuestionsUsed += 1;
         }
         state.ui.chatAttachmentName = "";
