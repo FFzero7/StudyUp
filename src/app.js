@@ -714,39 +714,33 @@ const askStudyUpAI = async (message, attachment) => {
         save();
         render();
       });
-      document.querySelectorAll(".quizlet-large-stack").forEach((button) => button.addEventListener("click", () => {
-        const pack = recommendedPack();
-        if (button.dataset.stack === "recommended" && pack) {
-          const limit = state.settings.premiumActive ? pack.cards.length : Math.min(pack.freeCount, pack.cards.length);
-          const existing = new Set(state.flashcards.filter((card) => card.packId === pack.id).map((card) => card.question));
-          pack.cards.slice(0, limit).forEach((card) => {
-            if (!existing.has(card.question)) state.flashcards.push({ id: uid("card"), subject: pack.subject, packId: pack.id, source: "database", reviewCount: 0, published: true, ...card });
-          });
-          state.ui.selectedCardSubject = pack.subject;
-        } else {
-          state.ui.selectedCardSubject = "";
-        }
-        save();
-        render();
-      }));
-     document.querySelector("#chat-form")?.addEventListener("submit", async (event) => {
-        state.ui.cardCreateOpen = !state.ui.cardCreateOpen;
-        save();
-        render();
-      });
-      document.querySelectorAll(".choose-card-mode").forEach((button) => button.addEventListener("click", () => {
-        state.ui.cardCreateMode = button.dataset.mode;
-        save();
-        render();
-      }));
-      document.querySelector("#card-form")?.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const data = formData(event.currentTarget);
-        state.flashcards.push({ id: uid("card"), subject: data.subject, title: data.subject, question: data.question, answer: data.answer, difficulty: Number(data.difficulty), reviewCount: 0, source: "private", published: false });
-        state.ui.cardCreateOpen = false;
-        save();
-        render();
-      });
+     document.querySelectorAll(".quizlet-large-stack").forEach((button) => button.addEventListener("click", () => {
+  const pack = recommendedPack();
+  if (button.dataset.stack === "recommended" && pack) {
+    const limit = state.settings.premiumActive ? pack.cards.length : Math.min(pack.freeCount, pack.cards.length);
+    const existing = new Set(state.flashcards.filter((card) => card.packId === pack.id).map((card) => card.question));
+    pack.cards.slice(0, limit).forEach((card) => {
+      if (!existing.has(card.question)) state.flashcards.push({ id: uid("card"), subject: pack.subject, packId: pack.id, source: "database", reviewCount: 0, published: true, ...card });
+    });
+    state.ui.selectedCardSubject = pack.subject;
+  } else {
+    state.ui.selectedCardSubject = "";
+  }
+  save();
+  render();
+}));
+
+document.querySelector("#toggle-card-create")?.addEventListener("click", () => {
+  state.ui.cardCreateOpen = !state.ui.cardCreateOpen;
+  save();
+  render();
+});
+
+document.querySelectorAll(".choose-card-mode").forEach((button) => button.addEventListener("click", () => {
+  state.ui.cardCreateMode = button.dataset.mode;
+  save();
+  render();
+}));
       document.querySelector("#photo-card-input")?.addEventListener("change", (event) => {
         const file = event.currentTarget.files?.[0];
         if (!file) return;
@@ -764,7 +758,7 @@ const askStudyUpAI = async (message, attachment) => {
     }
 
     if (route === "bot") {
-      document.querySelector("#ai-photo-input")?.addEventListener("change", (event) => {
+      document.querySelector("#chat-form")?.addEventListener("submit", async (event) => {
         const file = event.currentTarget.files?.[0];
         if (!file) return;
         state.ui.chatAttachmentName = file.name;
