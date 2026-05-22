@@ -757,37 +757,51 @@ document.querySelectorAll(".choose-card-mode").forEach((button) => button.addEve
       });
     }
 
-    if (route === "bot") {
-      document.querySelector("#chat-form")?.addEventListener("submit", async (event) => {
-        const file = event.currentTarget.files?.[0];
-        if (!file) return;
-        state.ui.chatAttachmentName = file.name;
-        save();
-        render();
-      });
-      document.querySelector(".voice-input")?.addEventListener("click", () => {
-        const input = document.querySelector("#chat-input");
-        input.value = `${input.value} Mündliche Notiz: `.trim();
-        input.focus();
-      });
-      document.querySelector("#chat-form")?.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const message = formData(event.currentTarget).message.trim();
-        const attachment = state.ui.chatAttachmentName;
-        if (!message && !attachment) return;
-        if (!state.settings.premiumActive && state.settings.aiQuestionsUsed >= state.settings.aiLimit) {
-          state.chat.push({ id: uid("msg"), role: "bot", text: "Basis-Limit erreicht: 5 AI-Fragen sind genutzt." });
-        } else {
-          state.chat.push({ id: uid("msg"), role: "user", text: `${message || "Foto-Frage"}${attachment ? ` [Foto: ${attachment}]` : ""}` });
-          state.chat.push({ id: uid("msg"), role: "bot", text: "StudyUp AI denkt …" }); const botMessage = state.chat[state.chat.length - 1];  try {   botMessage.text = await askStudyUpAI(message, attachment); } catch (error) {   botMessage.text = "AI error: " + error.message; }
-          if (!state.settings.premiumActive) state.settings.aiQuestionsUsed += 1;
-        }
-        state.ui.chatAttachmentName = "";
-        save();
-        render();
-      });
+if (route === "bot") {
+  document.querySelector("#ai-photo-input")?.addEventListener("change", (event) => {
+    const file = event.currentTarget.files?.[0];
+    if (!file) return;
+    state.ui.chatAttachmentName = file.name;
+    save();
+    render();
+  });
+
+  document.querySelector(".voice-input")?.addEventListener("click", () => {
+    const input = document.querySelector("#chat-input");
+    input.value = `${input.value} Mündliche Notiz: `.trim();
+    input.focus();
+  });
+
+  document.querySelector("#chat-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const message = formData(event.currentTarget).message.trim();
+    const attachment = state.ui.chatAttachmentName;
+
+    if (!message && !attachment) return;
+
+    if (!state.settings.premiumActive && state.settings.aiQuestionsUsed >= state.settings.aiLimit) {
+      state.chat.push({ id: uid("msg"), role: "bot", text: "Basis-Limit erreicht: 5 AI-Fragen sind genutzt." });
+    } else {
+      state.chat.push({ id: uid("msg"), role: "user", text: `${message || "Foto-Frage"}${attachment ? ` [Foto: ${attachment}]` : ""}` });
+
+      const botMessage = { id: uid("msg"), role: "bot", text: "StudyUp AI denkt …" };
+      state.chat.push(botMessage);
+
+      try {
+        botMessage.text = await askStudyUpAI(message, attachment);
+      } catch (error) {
+        botMessage.text = "AI error: " + error.message;
+      }
+
+      if (!state.settings.premiumActive) state.settings.aiQuestionsUsed += 1;
     }
 
+    state.ui.chatAttachmentName = "";
+    save();
+    render();
+  });
+}
     if (route === "premium") {
       document.querySelector(".activate-plus")?.addEventListener("click", () => {
         state.settings.premiumActive = true;
