@@ -2,4 +2,4 @@
 cd /d "%~dp0"
 start "StudyUp Server" /min node server.js
 timeout /t 1 /nobreak >nul
-start "" "http://127.0.0.1:4173/?v=22#dashboard"
+start "" "http://127.0.0.1:4173/?v=28#dashboard"
