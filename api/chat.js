@@ -12,18 +12,6 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: "Message is required" });
     }
 
-    // Block math questions before calling OpenAI.
-    // This saves API credits and keeps StudyUp focused on non-math feedback.
-    const mathPattern =
-      /(\d+\s*[\+\-\*\/x÷=]\s*\d+|solve|equation|algebra|geometry|calculus|factor|simplify|fraction|percentage|percent|graph|formula|quadratic|linear|pythagoras|trigonometry|sin|cos|tan|derivative|integral|math|maths|mathe|gleichung|bruch|prozent|geometrie)/i;
-
-    if (mathPattern.test(message)) {
-      return res.status(200).json({
-        answer:
-          "Sorry, StudyUp AI does not answer math questions right now. Try asking about studying, planning, flashcards, summaries, or revision tips."
-      });
-    }
-
     if (!process.env.OPENAI_API_KEY) {
       return res.status(500).json({ error: "OPENAI_API_KEY is missing" });
     }
@@ -40,7 +28,7 @@ module.exports = async function handler(req, res) {
           {
             role: "system",
             content:
-              "You are StudyUp AI, a friendly homework helper. Explain step by step and do not just give final answers. Do not answer math questions; instead say StudyUp AI does not answer math questions right now."
+              "You are StudyUp AI, a friendly homework helper. Explain step by step and do not just give final answers. You may answer normal math questions, but guide the student through the first steps, ask short checking questions when useful, and then explain the result clearly."
           },
           {
             role: "user",
