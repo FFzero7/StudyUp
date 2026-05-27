@@ -10,7 +10,7 @@
 
   const routes = ["dashboard", "grades", "planner", "cards", "bot", "premium"];
   const accentColors = { blue: "#2563eb", green: "#10b981", violet: "#7c3aed", coral: "#f97316" };
-  const planSteps = ["Wiederholen", "Üben", "Karteikarten", "Mini-Test", "Fehleranalyse", "Prüfungssimulation"];
+  const planSteps = ["Wiederholen", "Üben", "Cards", "Mini-Test", "Fehleranalyse", "Prüfungssimulation"];
 
   const uid = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const copy = (value) => JSON.parse(JSON.stringify(value));
@@ -65,12 +65,25 @@
     state.exams = state.exams || [];
     state.planEvents = state.planEvents || [];
     state.flashcards = (state.flashcards || []).map((card) => ({ source: "private", reviewCount: 0, published: false, title: card.subject, ...card }));
+    state.cardReviewStatus = state.cardReviewStatus || {};
+    Object.keys(state.cardReviewStatus).forEach((cardId) => {
+      if (state.cardReviewStatus[cardId] === "ok") delete state.cardReviewStatus[cardId];
+    });
     state.cardLibrary = state.cardLibrary?.length ? state.cardLibrary : copy(window.StudyUpSeed.cardLibrary);
     state.chat = state.chat || [];
     state.ui = { ...window.StudyUpSeed.ui, ...(state.ui || {}) };
     state.ui.selectedPartialGroup = state.ui.selectedPartialGroup || null;
     state.ui.showTargetGradeForm = Boolean(state.ui.showTargetGradeForm);
     state.ui.showPartialEntryForm = Boolean(state.ui.showPartialEntryForm);
+    state.ui.calendarMonthOffset = Number.isFinite(Number(state.ui.calendarMonthOffset)) ? Number(state.ui.calendarMonthOffset) : 0;
+    state.ui.editingGradeId = state.ui.editingGradeId || "";
+    state.ui.editingPartialGradeId = state.ui.editingPartialGradeId || "";
+    state.ui.cardStudyOpen = Boolean(state.ui.cardStudyOpen);
+    state.ui.cardStudyPackId = state.ui.cardStudyPackId || "";
+    state.ui.cardStudyIndex = Number.isFinite(Number(state.ui.cardStudyIndex)) ? Number(state.ui.cardStudyIndex) : 0;
+    state.ui.cardStudyMode = state.ui.cardStudyMode || "pack";
+    state.ui.cardStudyBucket = state.ui.cardStudyBucket || "";
+    state.ui.cardStudySource = state.ui.cardStudySource || "";
     if (!state.ui.cleanedHundredthsTest) {
       state.subjects.forEach((subject) => {
         subject.grades = subject.grades.filter((grade) => grade.title !== "Hundertstel-Test");
@@ -131,6 +144,92 @@
     return `${rounded > 0 ? "+" : ""}${clean} P`;
   };
   const topicList = (topics) => Array.isArray(topics) ? topics : String(topics || "").split(",").map((topic) => topic.trim()).filter(Boolean);
+  const cardText = () => {
+    const lang = String(state.settings.language || "en-US").slice(0, 2);
+    const labels = {
+      de: {
+        section: "Karten",
+        create: "Karten erstellen",
+        personal: "Persönliche Karten",
+        search: "Karten-Datenbank durchsuchen",
+        recommended: "Empfohlen",
+        learn: "Lernen",
+        open: "Öffnen",
+        good: "Gut",
+        bad: "Schlecht",
+        back: "Zurück",
+        previous: "Vorherige Karte",
+        next: "Nächste Karte",
+        empty: "Keine Karten",
+        emptyText: "Dieser Stapel enthält noch keine Karten."
+      },
+      en: {
+        section: "Cards",
+        create: "Create cards",
+        personal: "Personal cards",
+        search: "Search cards database",
+        recommended: "Recommended",
+        learn: "Study",
+        open: "Open",
+        good: "Good",
+        bad: "Bad",
+        back: "Back",
+        previous: "Previous card",
+        next: "Next card",
+        empty: "No cards",
+        emptyText: "This deck has no cards yet."
+      },
+      fr: {
+        section: "Cartes",
+        create: "Créer des cartes",
+        personal: "Cartes personnelles",
+        search: "Rechercher des cartes",
+        recommended: "Recommandé",
+        learn: "Apprendre",
+        open: "Ouvrir",
+        good: "Bien",
+        bad: "Difficile",
+        back: "Retour",
+        previous: "Carte précédente",
+        next: "Carte suivante",
+        empty: "Aucune carte",
+        emptyText: "Ce paquet ne contient pas encore de cartes."
+      },
+      it: {
+        section: "Carte",
+        create: "Crea carte",
+        personal: "Carte personali",
+        search: "Cerca carte",
+        recommended: "Consigliate",
+        learn: "Studia",
+        open: "Apri",
+        good: "Bene",
+        bad: "Difficile",
+        back: "Indietro",
+        previous: "Carta precedente",
+        next: "Carta successiva",
+        empty: "Nessuna carta",
+        emptyText: "Questo mazzo non contiene ancora carte."
+      },
+      es: {
+        section: "Tarjetas",
+        create: "Crear tarjetas",
+        personal: "Tarjetas personales",
+        search: "Buscar tarjetas",
+        recommended: "Recomendado",
+        learn: "Estudiar",
+        open: "Abrir",
+        good: "Bien",
+        bad: "Difícil",
+        back: "Atrás",
+        previous: "Tarjeta anterior",
+        next: "Tarjeta siguiente",
+        empty: "Sin tarjetas",
+        emptyText: "Este mazo todavía no tiene tarjetas."
+      }
+    };
+    return labels[lang] || labels.en;
+  };
 
   const applyTheme = () => {
     const system = currentSystem();
@@ -143,6 +242,10 @@
     document.documentElement.style.setProperty("--accent-soft", `${accent}1A`);
     if (themeIcon) themeIcon.innerHTML = state.settings.theme === "dark" ? "&#9728;" : "&#9790;";
     if (themeLabel) themeLabel.textContent = state.settings.theme === "dark" ? "Hell" : "Dunkel";
+    const cardsNavLabel = document.querySelector('[data-route="cards"] span:last-child');
+    const cardsNavLink = document.querySelector('[data-route="cards"]');
+    if (cardsNavLabel) cardsNavLabel.textContent = cardText().section;
+    if (cardsNavLink) cardsNavLink.title = cardText().section;
   };
 
   const getRoute = () => {
@@ -175,7 +278,7 @@
       <section class="onboarding-screen">
         <div class="onboarding-logo">
           <span class="logo" aria-hidden="true">
-            <svg viewBox="0 0 48 48"><path d="M8 12.5c5.7-.9 10.6.2 14 3.1v21.1c-3.4-2.9-8.3-4-14-3.1V12.5Z" /><path d="M40 12.5c-5.7-.9-10.6.2-14 3.1v21.1c3.4-2.9 8.3-4 14-3.1V12.5Z" /><path d="M24 10v28" /><path d="M31 20.5 36 15l5 5.5" /><path d="M36 15v12" /></svg>
+            <img src="src/assets/studyup-logo.png" alt="" />
           </span>
           <h1>StudyUp.com</h1>
         </div>
@@ -229,23 +332,21 @@
 
   const gradeInputAttrs = () => {
     const system = currentSystem();
-    return `min="${system.min}" max="${system.max}" step="0.01" placeholder="${C.escapeHtml(system.example)}"`;
+    return `min="${system.min}" max="${system.max}" step="0.01"`;
+  };
+  const gradeInputBounds = () => {
+    const system = currentSystem();
+    return `min="${system.min}" max="${system.max}" step="0.01"`;
   };
 
   const gradeSubjectById = (id) => state.subjects.find((subject) => subject.id === id);
   const gradeEntryById = (subject, id) => subject?.grades.find((grade) => grade.id === id);
-  const renderGradeActions = (gradeId, partialId = "") => `
-    <div class="grade-row-actions">
-      <button class="icon-action rename-grade" data-grade="${gradeId}" data-partial="${partialId}" type="button" title="Umbenennen">${C.icon("edit")}</button>
-      <button class="icon-action delete-grade" data-grade="${gradeId}" data-partial="${partialId}" type="button" title="Löschen">${C.icon("trash")}</button>
-    </div>
-  `;
   const renderGradeEntryRow = (grade) => {
     const isPartial = grade.type === "partial";
     const value = gradeValue(grade);
     return `
       <article class="grade-swipe-row ${isPartial ? "partial-folder-row" : ""}">
-        <button class="grade-row-main ${isPartial ? "open-partial-folder" : ""}" data-id="${grade.id}" type="button">
+        <button class="grade-row-main ${isPartial ? "open-partial-folder" : "open-grade-edit"}" data-id="${grade.id}" type="button">
           <span class="grade-row-icon">${C.icon(isPartial ? "folder" : "chart")}</span>
           <div>
             <strong>${C.escapeHtml(grade.title)}</strong>
@@ -253,7 +354,6 @@
           </div>
           <em>${Number.isFinite(value) ? value.toFixed(2) : "–"}</em>
         </button>
-        ${renderGradeActions(grade.id)}
       </article>
     `;
   };
@@ -271,11 +371,26 @@
     `;
   }).join("") || `<div class="empty-grade-list">Füge oben dein erstes Fach hinzu.</div>`;
 
+  const renderSubjectAddView = () => `
+    <section class="grade-page grade-form-only">
+      <div class="grade-page-header">
+        <button class="secondary-button close-subject-form" type="button">Zurück</button>
+        <h1>Fach hinzufügen</h1>
+      </div>
+      <form class="subject-add-form show" id="subject-form">
+        <label>Fach<input name="name" required /></label>
+        <label>Gewichtung<input name="weight" type="number" min="0.5" max="4" step="0.5" value="1" /></label>
+        <button class="primary-button" type="submit">Fach hinzufügen</button>
+      </form>
+    </section>
+  `;
+
   const renderGrades = () => {
     const selected = gradeSubjectById(state.ui.selectedGradeSubject);
     const partial = selected ? gradeEntryById(selected, state.ui.selectedPartialGroup) : null;
     if (selected && partial?.type === "partial") return renderPartialGroupDetail(selected, partial);
     if (selected) return renderGradeSubjectDetail(selected);
+    if (state.ui.showSubjectForm) return renderSubjectAddView();
 
     return `
       <section class="grade-page">
@@ -283,17 +398,34 @@
           <h1>Noten</h1>
           <button class="round-add" id="toggle-subject-form" type="button">+</button>
         </div>
-        <form class="subject-add-form ${state.ui.showSubjectForm ? "show" : ""}" id="subject-form">
-          <label>Fach<input name="name" required placeholder="z. B. Mathe" /></label>
-          <label>Gewichtung<input name="weight" type="number" min="0.5" max="4" step="0.5" value="1" /></label>
-          <button class="primary-button" type="submit">Fach hinzufügen</button>
-        </form>
         <section class="grade-folder-list">${renderSubjectFolders()}</section>
       </section>
     `;
   };
 
+  const renderGradeEntryFormView = (subject) => {
+    const editing = gradeEntryById(subject, state.ui.editingGradeId);
+    const isEditing = Boolean(editing);
+    const isPartial = editing?.type === "partial";
+    return `
+      <section class="grade-page grade-form-only">
+        <div class="grade-page-header folder-detail-header">
+          <button class="secondary-button close-grade-entry-form" type="button">Zurück</button>
+          <h1>${isEditing ? "Prüfung bearbeiten" : "Prüfung hinzufügen"}</h1>
+        </div>
+        <form class="grade-entry-form show" id="grade-form">
+          <label>Prüfung oder Ordner<input name="title" required value="${C.escapeHtml(editing?.title || "")}" /></label>
+          <label>Note<input name="value" type="number" ${gradeInputBounds()} value="${!isPartial && Number.isFinite(Number(editing?.value)) ? Number(editing.value) : ""}" ${isPartial ? "disabled" : ""} /></label>
+          <label class="toggle-field"><input name="isPartial" type="checkbox" value="partial" ${isPartial ? "checked" : ""} ${isEditing ? "disabled" : ""} /><span>Teilnoten</span><small>Erstellt einen Ordner für Teilprüfungen. Gewicht immer 1.</small></label>
+          ${isEditing ? `<button class="danger-button delete-editing-grade" type="button">${C.icon("trash")} Löschen</button>` : ""}
+          <button class="primary-button" type="submit">Speichern</button>
+        </form>
+      </section>
+    `;
+  };
+
   const renderGradeSubjectDetail = (subject) => {
+    if (state.ui.showGradeEntryForm) return renderGradeEntryFormView(subject);
     const avg = subjectHasGrades(subject) ? average(subject.grades) : null;
     const points = plusPointsFor(subject);
     const target = subject.targetGrade ? Number(subject.targetGrade).toFixed(2) : "–";
@@ -313,13 +445,6 @@
           <label>Wunschnote<input name="targetGrade" type="number" ${gradeInputAttrs()} value="${C.escapeHtml(subject.targetGrade || "")}" /></label>
           <button class="primary-button" type="submit">Wunschnote speichern</button>
         </form>
-        <form class="grade-entry-form ${state.ui.showGradeEntryForm ? "show" : ""}" id="grade-form">
-          <label>Prüfung oder Ordner<input name="title" required placeholder="z. B. Mathe-Test" /></label>
-          <label>Datum<input name="date" type="date" value="${todayIso()}" /></label>
-          <label>Note<input name="value" type="number" ${gradeInputAttrs()} /></label>
-          <label class="toggle-field"><input name="isPartial" type="checkbox" value="partial" /><span>Teilnoten</span><small>Erstellt einen Ordner für Teilprüfungen. Gewicht immer 1.</small></label>
-          <button class="primary-button" type="submit">Speichern</button>
-        </form>
         <section class="grade-entry-list">
           ${subject.grades.map(renderGradeEntryRow).join("") || `<div class="empty-grade-list">Drücke +, um die erste Prüfung einzutragen.</div>`}
         </section>
@@ -327,7 +452,26 @@
     `;
   };
 
+  const renderPartialEntryFormView = (subject, group) => {
+    const editing = group.partialGrades.find((grade) => grade.id === state.ui.editingPartialGradeId);
+    return `
+      <section class="grade-page grade-form-only">
+        <div class="grade-page-header folder-detail-header">
+          <button class="secondary-button close-partial-entry-form" type="button">Zurück</button>
+          <h1>${editing ? "Teilprüfung bearbeiten" : "Teilprüfung hinzufügen"}</h1>
+        </div>
+        <form class="grade-entry-form show" id="partial-grade-form">
+          <label>Teilprüfung<input name="title" required value="${C.escapeHtml(editing?.title || "")}" /></label>
+          <label>Note<input name="value" required type="number" ${gradeInputBounds()} value="${Number.isFinite(Number(editing?.value)) ? Number(editing.value) : ""}" /></label>
+          <button class="primary-button" type="submit">Teilprüfung speichern</button>
+          ${editing ? `<button class="danger-button delete-editing-partial-grade" type="button">${C.icon("trash")} Löschen</button>` : ""}
+        </form>
+      </section>
+    `;
+  };
+
   const renderPartialGroupDetail = (subject, group) => {
+    if (state.ui.showPartialEntryForm) return renderPartialEntryFormView(subject, group);
     const avg = group.partialGrades.length ? average(group.partialGrades) : null;
     return `
       <section class="grade-page">
@@ -341,21 +485,14 @@
           <article><span>Durchschnitt</span><strong>${avg === null ? "–" : avg.toFixed(2)}</strong></article>
           <article><span>Gewicht</span><strong>1</strong></article>
         </div>
-        <form class="grade-entry-form ${state.ui.showPartialEntryForm ? "show" : ""}" id="partial-grade-form">
-          <label>Teilprüfung<input name="title" required placeholder="z. B. Kurztest 1" /></label>
-          <label>Datum<input name="date" type="date" value="${todayIso()}" /></label>
-          <label>Note<input name="value" required type="number" ${gradeInputAttrs()} /></label>
-          <button class="primary-button" type="submit">Teilprüfung speichern</button>
-        </form>
         <section class="grade-entry-list">
           ${group.partialGrades.map((grade) => `
             <article class="grade-swipe-row">
-              <div class="grade-row-main static">
+              <button class="grade-row-main open-partial-grade-edit" data-id="${grade.id}" type="button">
                 <span class="grade-row-icon">${C.icon("chart")}</span>
-                <div><strong>${C.escapeHtml(grade.title)}</strong><small>${grade.date ? formatDate(grade.date) : "Ohne Datum"} · Gewicht 1</small></div>
+                <div><strong>${C.escapeHtml(grade.title)}</strong><small>Gewicht 1</small></div>
                 <em>${Number(grade.value).toFixed(2)}</em>
-              </div>
-              ${renderGradeActions(grade.id, group.id)}
+              </button>
             </article>
           `).join("") || `<div class="empty-grade-list">Drücke +, um die erste Teilprüfung einzutragen.</div>`}
         </section>
@@ -379,40 +516,66 @@
     });
   };
 
-  const renderCalendar = () => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
+  const createExamWeekPlan = ({ subject, title, date }) => {
+    const examDate = dateObject(date);
+    return Array.from({ length: 7 }, (_, index) => {
+      const stepDate = new Date(examDate);
+      stepDate.setDate(stepDate.getDate() - (7 - index));
+      const step = planSteps[index % planSteps.length];
+      return { id: uid("event"), subject, title: `${step}: ${title}`, date: toIso(stepDate), minutes: 25, type: step, auto: true };
+    });
+  };
+
+  const renderCalendarMonth = (year, month, items) => {
     const first = new Date(year, month, 1);
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const offset = (first.getDay() + 6) % 7;
-    const items = calendarItems();
+    const title = new Intl.DateTimeFormat(state.settings.language || currentSystem().language, { month: "long" }).format(first);
     const cells = [
       ...Array.from({ length: offset }, () => `<div class="calendar-cell empty"></div>`),
       ...Array.from({ length: daysInMonth }, (_, index) => {
         const day = index + 1;
         const iso = toIso(new Date(year, month, day));
         const dayItems = items.filter((item) => item.date === iso);
-        return `<div class="calendar-cell ${iso === todayIso() ? "today" : ""}"><strong>${day}</strong>${dayItems.slice(0, 3).map((item) => `<span class="${item.exam ? "exam-dot" : item.homework ? "homework-dot" : ""}">${C.escapeHtml(item.subject)}</span>`).join("")}</div>`;
+        return `<div class="calendar-cell ${iso === todayIso() ? "today" : ""}"><strong>${day}</strong>${dayItems.slice(0, 2).map((item) => `<span class="${item.exam ? "exam-dot" : item.homework ? "homework-dot" : ""}" title="${C.escapeHtml(item.title)}">${C.escapeHtml(item.subject)}</span>`).join("")}</div>`;
       })
     ];
-    return `<div class="weekdays"><span>Mo</span><span>Di</span><span>Mi</span><span>Do</span><span>Fr</span><span>Sa</span><span>So</span></div><div class="calendar-grid">${cells.join("")}</div>`;
+    return `<article class="calendar-month-panel"><h3>${C.escapeHtml(title)}</h3><div class="weekdays"><span>Mo</span><span>Di</span><span>Mi</span><span>Do</span><span>Fr</span><span>Sa</span><span>So</span></div><div class="calendar-grid">${cells.join("")}</div></article>`;
   };
 
-  const renderPlanner = () => `
+  const currentCalendarDate = () => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth() + Number(state.ui.calendarMonthOffset || 0), 1);
+  };
+
+  const renderCalendar = () => {
+    const selectedMonth = currentCalendarDate();
+    const year = selectedMonth.getFullYear();
+    const month = selectedMonth.getMonth();
+    const items = calendarItems();
+    return `<div class="calendar-current-grid">${renderCalendarMonth(year, month, items)}</div>`;
+  };
+
+  const renderPlannerAddForm = () => `
     ${C.sectionTitle("Plan", "Kalender")}
-    <section class="panel calendar-only-panel">
-      <div class="panel-header"><div><span>${formatDate(todayIso(), { month: "long", year: "numeric" })}</span><h2>Kalender</h2></div><button class="round-add" id="toggle-event-form" type="button">+</button></div>
-      ${renderCalendar()}
+    <section class="panel calendar-only-panel calendar-add-only">
+      <div class="panel-header"><div><span>Neu</span><h2>Eintrag hinzufügen</h2></div><button class="round-add" id="toggle-event-form" type="button" aria-label="Formular schließen">&times;</button></div>
       <form id="event-form" class="calendar-entry-form ${state.ui.showEventForm ? "show" : ""}">
         <label>Eintrag<select name="kind"><option value="event">Termin</option><option value="exam">Prüfung</option><option value="homework">Hausaufgabe</option></select></label>
-        <label>Fach<input name="subject" required placeholder="z. B. Französisch" /></label>
-        <label>Titel<input name="title" required placeholder="z. B. UNIT 1" /></label>
+        <label>Fach<input name="subject" required /></label>
+        <label>Titel<input name="title" required /></label>
         <label>Datum<input name="date" required type="date" value="${todayIso()}" /></label>
-        <label>Minuten<input name="minutes" type="number" min="10" max="180" step="5" value="25" /></label>
-        <label>Themen<textarea name="topics" rows="2" placeholder="optional, für automatische Einteilung"></textarea></label>
+        <label class="toggle-field"><input name="autoPlan" type="checkbox" value="yes" /><span>Automatische Lerntermine</span><small>Bei Prüfungen wird eine Woche vorher automatisch geplant.</small></label>
         <button class="primary-button" type="submit">Eintragen</button>
       </form>
+    </section>
+  `;
+
+  const renderPlanner = () => state.ui.showEventForm ? renderPlannerAddForm() : `
+    ${C.sectionTitle("Plan", "Kalender")}
+    <section class="panel calendar-only-panel">
+      <div class="panel-header"><div><span>${new Intl.DateTimeFormat(state.settings.language || currentSystem().language, { month: "long", year: "numeric" }).format(currentCalendarDate())}</span><h2>Kalender</h2></div><div class="calendar-header-actions"><button class="calendar-month-step" data-offset="-1" type="button" aria-label="Vorheriger Monat">‹</button><button class="calendar-month-step" data-offset="1" type="button" aria-label="Nächster Monat">›</button><button class="round-add" id="toggle-event-form" type="button" aria-label="Eintrag hinzufügen">+</button></div></div>
+      ${renderCalendar()}
     </section>
   `;
 
@@ -423,40 +586,138 @@
 
   const personalCards = () => state.flashcards.filter((card) => card.source !== "database");
   const recommendedPack = () => filteredLibrary()[0] || state.cardLibrary[0];
-  const renderStack = (title, subtitle, count, kind, actionText) => `
-    <button class="quizlet-large-stack" data-stack="${kind}" type="button">
-      <div class="big-card-stack"><i></i><i></i><i></i></div>
-      <strong>${C.escapeHtml(title)}</strong>
-      <span>${C.escapeHtml(subtitle)}</span>
-      <small>${count} Karten</small>
-      <em>${actionText}</em>
-    </button>
+  const cardsForPack = (pack) => {
+    if (!pack?.cards?.length) return [];
+    const limit = state.settings.premiumActive ? pack.cards.length : Math.min(pack.freeCount || pack.cards.length, pack.cards.length);
+    return pack.cards.slice(0, limit).map((card, index) => ({
+      id: `${pack.id}-${index}`,
+      subject: pack.subject,
+      packId: pack.id,
+      source: "database",
+      published: true,
+      reviewCount: 0,
+      ...card
+    }));
+  };
+  const activeStudyPack = () => state.cardLibrary.find((pack) => pack.id === state.ui.cardStudyPackId) || recommendedPack();
+  const allCardsForReview = () => [
+    ...state.cardLibrary.flatMap(cardsForPack),
+    ...personalCards().map((card) => ({ ...card, id: card.id || uid("card") }))
+  ];
+  const cardsForBucket = (bucket, source = state.ui.cardStudySource, packId = state.ui.cardStudyPackId) => allCardsForReview().filter((card) => {
+    if (state.cardReviewStatus[card.id] !== bucket) return false;
+    if (source === "personal") return card.source !== "database";
+    if (source === "pack") return card.packId === packId;
+    return true;
+  });
+  const activeStudyCards = () => {
+    if (state.ui.cardStudyMode === "bucket") return cardsForBucket(state.ui.cardStudyBucket);
+    if (state.ui.cardStudyMode === "personal") return personalCards();
+    return cardsForPack(activeStudyPack());
+  };
+  const cardBucketCountsFor = (cards) => ({
+    good: cards.filter((card) => state.cardReviewStatus[card.id] === "good").length,
+    bad: cards.filter((card) => state.cardReviewStatus[card.id] === "bad").length
+  });
+  const cardBucketTitle = (bucket) => {
+    const t = cardText();
+    return { good: t.good, bad: t.bad }[bucket] || t.section;
+  };
+  const rateStudyCard = (card, rating) => {
+    if (!card?.id) return;
+    state.cardReviewStatus[card.id] = rating === "good" ? "good" : "bad";
+    const cards = activeStudyCards();
+    state.ui.cardStudyIndex = Math.min(Number(state.ui.cardStudyIndex || 0) + 1, Math.max(cards.length - 1, 0));
+  };
+
+  const renderCardCreateView = () => `
+    ${C.sectionTitle(cardText().section, cardText().section)}
+    <section class="create-card-sheet standalone-create show">
+      <div class="create-sheet-header">
+        <div><span>Neu</span><h2>${C.escapeHtml(cardText().create)}</h2></div>
+        <button class="ghost-icon close-card-create" type="button" aria-label="Schließen">&times;</button>
+      </div>
+      <div class="create-options">
+        <button class="secondary-button choose-card-mode" data-mode="ai" type="button">${C.icon("camera")} Mit AI</button>
+        <button class="secondary-button choose-card-mode" data-mode="self" type="button">${C.icon("add")} Selbst</button>
+      </div>
+      ${state.ui.cardCreateMode === "ai" ? `<div class="panel photo-card-panel"><h2>Vokabelheft fotografieren</h2><button class="ghost-button close-card-create" type="button">Abbrechen</button><label>Fach<input id="photo-card-subject" /></label><label class="upload-tile">${C.icon("camera")} Foto auswählen<input id="photo-card-input" type="file" accept="image/*" capture="environment" /></label></div>` : ""}
+      ${state.ui.cardCreateMode === "self" ? `<form class="panel form-panel" id="card-form"><div class="form-title-row"><h2>Eigene Karte</h2><button class="ghost-button close-card-create" type="button">Abbrechen</button></div><label>Titel / Fach<input name="subject" required /></label><label>Frage<textarea name="question" required rows="3"></textarea></label><label>Antwort<textarea name="answer" required rows="3"></textarea></label><label>Status<select name="difficulty"><option value="1" selected>Gut</option><option value="3">Schlecht</option></select></label><button class="primary-button" type="submit">Card speichern</button></form>` : ""}
+    </section>
   `;
 
+  const renderCardStudyView = () => {
+    const t = cardText();
+    const pack = activeStudyPack();
+    const cards = activeStudyCards();
+    const safeIndex = Math.min(Math.max(Number(state.ui.cardStudyIndex || 0), 0), Math.max(cards.length - 1, 0));
+    const card = cards[safeIndex];
+    const isBucketMode = state.ui.cardStudyMode === "bucket";
+    const studyTitle = isBucketMode ? `${cardBucketTitle(state.ui.cardStudyBucket)} ${t.section}` : state.ui.cardStudyMode === "personal" ? t.personal : pack?.title || t.recommended;
+    return `
+      ${C.sectionTitle(t.section, t.section)}
+      <section class="card-study-view">
+        <div class="card-study-header">
+          <button class="ghost-button close-card-study" type="button">${C.escapeHtml(t.back)}</button>
+          <div><span>${C.escapeHtml(isBucketMode ? cardBucketTitle(state.ui.cardStudyBucket) : pack?.subject || t.recommended)}</span><h2>${C.escapeHtml(studyTitle)}</h2></div>
+        </div>
+        ${card ? `
+          <button class="study-flashcard" type="button" aria-label="Karte umdrehen">
+            <span class="study-flashcard-inner">
+              <span class="study-flashcard-face front"><small>Frage</small><strong>${C.escapeHtml(card.question)}</strong></span>
+              <span class="study-flashcard-face back"><small>Antwort</small><strong>${C.escapeHtml(card.answer)}</strong></span>
+            </span>
+          </button>
+          <div class="card-study-controls">
+            <button class="secondary-button study-prev" type="button" ${safeIndex <= 0 ? "disabled" : ""}>${C.escapeHtml(t.previous)}</button>
+            <span class="card-counter">${safeIndex + 1} / ${cards.length}</span>
+            <button class="primary-button study-next" type="button" ${safeIndex >= cards.length - 1 ? "disabled" : ""}>${C.escapeHtml(t.next)}</button>
+          </div>
+          <div class="card-rating-grid two-options">
+            <button class="card-rating-card bad" data-rating="bad" type="button"><span></span><strong>${C.escapeHtml(t.bad)}</strong></button>
+            <button class="card-rating-card good" data-rating="good" type="button"><span></span><strong>${C.escapeHtml(t.good)}</strong></button>
+          </div>
+        ` : C.emptyState(t.empty, t.emptyText)}
+      </section>
+    `;
+  };
+
+  const renderStack = ({ title, subtitle, count, kind, actionText, source, packId, cards }) => {
+    const counts = cardBucketCountsFor(cards);
+    return `
+      <article class="quizlet-large-stack deck-stack" data-stack="${kind}" data-source="${source}" data-pack="${C.escapeHtml(packId || "")}">
+        <button class="stack-main" data-stack="${kind}" data-source="${source}" data-pack="${C.escapeHtml(packId || "")}" type="button">
+          <div class="big-card-stack"><i></i><i></i><i></i></div>
+          <strong>${C.escapeHtml(title)}</strong>
+          <span>${C.escapeHtml(subtitle)}</span>
+          <small>${count} ${C.escapeHtml(cardText().section)}</small>
+          <em>${actionText}</em>
+        </button>
+        <div class="deck-status-column">
+          <button class="deck-count-pill good" data-bucket="good" data-source="${source}" data-pack="${C.escapeHtml(packId || "")}" type="button"><strong>${counts.good}</strong><span>${C.escapeHtml(cardText().good)}</span></button>
+          <button class="deck-count-pill bad" data-bucket="bad" data-source="${source}" data-pack="${C.escapeHtml(packId || "")}" type="button"><strong>${counts.bad}</strong><span>${C.escapeHtml(cardText().bad)}</span></button>
+        </div>
+      </article>
+    `;
+  };
+
   const renderCards = () => {
+    if (state.ui.cardCreateOpen) return renderCardCreateView();
+    if (state.ui.cardStudyOpen) return renderCardStudyView();
+    const t = cardText();
     const pack = recommendedPack();
     const personal = personalCards();
+    const packCards = cardsForPack(pack);
     return `
-      ${C.sectionTitle("Karten", "Karten")}
+      ${C.sectionTitle(t.section, t.section)}
       <section class="cards-search-panel">
-        <div class="search-box">${C.icon("search")}<input id="card-search" placeholder="Karten-Datenbank durchsuchen" value="${C.escapeHtml(state.ui.cardSearch || "")}" /></div>
+        <div class="search-box">${C.icon("search")}<input id="card-search" placeholder="${C.escapeHtml(t.search)}" value="${C.escapeHtml(state.ui.cardSearch || "")}" /></div>
       </section>
       <section class="card-stack-board">
-        ${renderStack("Persönliche Karten", "Nur für dich", personal.length, "personal", "Öffnen")}
-        ${renderStack(pack ? pack.title : "Empfohlen", pack ? pack.subject : "Datenbank", pack ? pack.totalCount : 0, "recommended", "Laden")}
-      </section>
-      <section class="panel card-results">
-        ${(state.ui.selectedCardSubject ? state.flashcards.filter((card) => card.subject === state.ui.selectedCardSubject) : state.flashcards).slice(0, 8).map((card) => `<article class="mini-card ${C.difficultyClass(card.difficulty)}"><span>${C.difficultyLabel(card.difficulty)}</span><h3>${C.escapeHtml(card.question)}</h3><p>${C.escapeHtml(card.answer)}</p><small>${C.escapeHtml(card.subject)} · ${card.source === "ai" ? "AI" : card.source === "database" ? "Datenbank" : "Privat"}</small></article>`).join("") || C.emptyState("Keine Karten", "Drücke auf + und erstelle Karten.")}
+        ${renderStack({ title: t.personal, subtitle: "Nur für dich", count: personal.length, kind: "personal", actionText: t.open, source: "personal", cards: personal })}
+        ${renderStack({ title: pack ? pack.title : t.recommended, subtitle: pack ? pack.subject : "Datenbank", count: pack ? pack.totalCount : 0, kind: "recommended", actionText: t.learn, source: "pack", packId: pack?.id || "", cards: packCards })}
       </section>
       <button class="floating-create-button" id="toggle-card-create" type="button">+</button>
-      <section class="create-card-sheet ${state.ui.cardCreateOpen ? "show" : ""}">
-        <div class="create-options">
-          <button class="secondary-button choose-card-mode" data-mode="ai" type="button">${C.icon("camera")} Mit AI</button>
-          <button class="secondary-button choose-card-mode" data-mode="self" type="button">${C.icon("add")} Selbst</button>
-        </div>
-        ${state.ui.cardCreateMode === "ai" ? `<div class="panel photo-card-panel"><h2>Vokabelheft fotografieren</h2><label>Fach<input id="photo-card-subject" placeholder="z. B. Französisch" /></label><label class="upload-tile">${C.icon("camera")} Foto auswählen<input id="photo-card-input" type="file" accept="image/*" capture="environment" /></label></div>` : ""}
-        ${state.ui.cardCreateMode === "self" ? `<form class="panel form-panel" id="card-form"><label>Titel / Fach<input name="subject" required placeholder="z. B. Französisch UNIT 1" /></label><label>Frage<textarea name="question" required rows="3"></textarea></label><label>Antwort<textarea name="answer" required rows="3"></textarea></label><label>Status<select name="difficulty"><option value="1">Gut</option><option value="2" selected>Okay</option><option value="3">Schlecht</option></select></label><button class="primary-button" type="submit">Karte speichern</button></form>` : ""}
-      </section>
     `;
   };
 
@@ -506,14 +767,14 @@ const askStudyUpAI = async (message, attachment) => {
   const renderPremium = () => `
     ${C.sectionTitle("Premium", "StudyUp Plus")}
     <section class="pricing-grid premium-grid">
-      <article class="price-card"><span>Basis Version</span><h2>Basis</h2><strong>CHF 0</strong><ul><li>5 AI-Fragen</li><li>Begrenzte Datenbank-Karten</li><li>Einfache Lernpläne</li></ul><button class="secondary-button" type="button">Aktueller Plan</button></article>
-      <article class="price-card featured"><span>Premium</span><h2>StudyUp Plus</h2><strong>CHF 4.90</strong><ul><li>Unbegrenzte AI-Hilfe</li><li>Alle Datenbank-Sets</li><li>Automatische Lernpläne</li><li>Eigene Farben und Kartenstil</li></ul><button class="primary-button activate-plus" type="button">${state.settings.premiumActive ? "Plus aktiv" : "Zahlen und Plus aktivieren"}</button></article>
+      <article class="price-card"><span>Basis Version</span><h2>Basis</h2><strong>CHF 0</strong><ul><li>5 AI-Fragen</li><li>Begrenzte Datenbank-Cards</li><li>Einfache Lernpläne</li></ul><button class="secondary-button" type="button">Aktueller Plan</button></article>
+      <article class="price-card featured"><span>Premium</span><h2>StudyUp Plus</h2><strong>CHF 4.90</strong><ul><li>Unbegrenzte AI-Hilfe</li><li>Alle Datenbank-Sets</li><li>Automatische Lernpläne</li><li>Eigene Farben und Card-Stil</li></ul><button class="primary-button activate-plus" type="button">${state.settings.premiumActive ? "Plus aktiv" : "Zahlen und Plus aktivieren"}</button></article>
     </section>
     <section class="panel customize-panel ${state.settings.premiumActive ? "" : "locked"}">
       <div class="panel-header"><div><span>Selbstgestaltung</span><h2>Dein Look</h2></div>${state.settings.premiumActive ? C.icon("palette") : C.icon("lock")}</div>
       <div class="custom-grid">
         <label>Akzentfarbe<select name="accent" class="setting-control" ${state.settings.premiumActive ? "" : "disabled"}><option value="blue" ${state.settings.accent === "blue" ? "selected" : ""}>Blau</option><option value="green" ${state.settings.accent === "green" ? "selected" : ""}>Grün</option><option value="violet" ${state.settings.accent === "violet" ? "selected" : ""}>Violett</option><option value="coral" ${state.settings.accent === "coral" ? "selected" : ""}>Koralle</option></select></label>
-        <label>Kartenstil<select name="cardStyle" class="setting-control" ${state.settings.premiumActive ? "" : "disabled"}><option value="stacked" ${state.settings.cardStyle === "stacked" ? "selected" : ""}>Gestapelt</option><option value="clean" ${state.settings.cardStyle === "clean" ? "selected" : ""}>Clean</option></select></label>
+        <label>Card-Stil<select name="cardStyle" class="setting-control" ${state.settings.premiumActive ? "" : "disabled"}><option value="stacked" ${state.settings.cardStyle === "stacked" ? "selected" : ""}>Gestapelt</option><option value="clean" ${state.settings.cardStyle === "clean" ? "selected" : ""}>Clean</option></select></label>
       </div>
     </section>
   `;
@@ -563,6 +824,11 @@ const askStudyUpAI = async (message, attachment) => {
         save();
         render();
       });
+      document.querySelector(".close-subject-form")?.addEventListener("click", () => {
+        state.ui.showSubjectForm = false;
+        save();
+        render();
+      });
       document.querySelectorAll(".grade-folder").forEach((button) => button.addEventListener("click", () => {
         state.ui.selectedGradeSubject = button.dataset.id;
         state.ui.selectedPartialGroup = null;
@@ -570,6 +836,8 @@ const askStudyUpAI = async (message, attachment) => {
         state.ui.showGradeEntryForm = false;
         state.ui.showTargetGradeForm = false;
         state.ui.showPartialEntryForm = false;
+        state.ui.editingGradeId = "";
+        state.ui.editingPartialGradeId = "";
         save();
         render();
       }));
@@ -579,17 +847,27 @@ const askStudyUpAI = async (message, attachment) => {
         state.ui.showGradeEntryForm = false;
         state.ui.showTargetGradeForm = false;
         state.ui.showPartialEntryForm = false;
+        state.ui.editingGradeId = "";
+        state.ui.editingPartialGradeId = "";
         save();
         render();
       });
       document.querySelector(".back-to-subject-detail")?.addEventListener("click", () => {
         state.ui.selectedPartialGroup = null;
         state.ui.showPartialEntryForm = false;
+        state.ui.editingPartialGradeId = "";
         save();
         render();
       });
       document.querySelector("#toggle-grade-entry-form")?.addEventListener("click", () => {
-        state.ui.showGradeEntryForm = !state.ui.showGradeEntryForm;
+        state.ui.showGradeEntryForm = true;
+        state.ui.editingGradeId = "";
+        save();
+        render();
+      });
+      document.querySelector(".close-grade-entry-form")?.addEventListener("click", () => {
+        state.ui.showGradeEntryForm = false;
+        state.ui.editingGradeId = "";
         save();
         render();
       });
@@ -611,24 +889,53 @@ const askStudyUpAI = async (message, attachment) => {
         const data = formData(event.currentTarget);
         const subject = gradeSubjectById(state.ui.selectedGradeSubject);
         if (subject) {
-          if (data.isPartial === "partial") {
-            subject.grades.push({ id: uid("partial"), type: "partial", title: data.title, date: data.date || todayIso(), partialGrades: [] });
+          const editing = gradeEntryById(subject, state.ui.editingGradeId);
+          if (editing) {
+            editing.title = data.title;
+            if (editing.type !== "partial" && data.value !== "") editing.value = Number(data.value);
+          } else if (data.isPartial === "partial") {
+            subject.grades.push({ id: uid("partial"), type: "partial", title: data.title, date: todayIso(), partialGrades: [] });
           } else if (data.value !== "") {
-            subject.grades.push({ id: uid("grade"), type: "exam", title: data.title, date: data.date || todayIso(), value: Number(data.value) });
+            subject.grades.push({ id: uid("grade"), type: "exam", title: data.title, date: todayIso(), value: Number(data.value) });
           }
         }
         state.ui.showGradeEntryForm = false;
+        state.ui.editingGradeId = "";
         save();
         render();
       });
+      document.querySelector(".delete-editing-grade")?.addEventListener("click", () => {
+        const subject = gradeSubjectById(state.ui.selectedGradeSubject);
+        if (!subject || !state.ui.editingGradeId) return;
+        subject.grades = subject.grades.filter((grade) => grade.id !== state.ui.editingGradeId);
+        if (state.ui.selectedPartialGroup === state.ui.editingGradeId) state.ui.selectedPartialGroup = null;
+        state.ui.showGradeEntryForm = false;
+        state.ui.editingGradeId = "";
+        save();
+        render();
+      });
+      document.querySelectorAll(".open-grade-edit").forEach((button) => button.addEventListener("click", () => {
+        state.ui.editingGradeId = button.dataset.id;
+        state.ui.showGradeEntryForm = true;
+        save();
+        render();
+      }));
       document.querySelectorAll(".open-partial-folder").forEach((button) => button.addEventListener("click", () => {
         state.ui.selectedPartialGroup = button.dataset.id;
         state.ui.showPartialEntryForm = false;
+        state.ui.editingPartialGradeId = "";
         save();
         render();
       }));
       document.querySelector("#toggle-partial-entry-form")?.addEventListener("click", () => {
-        state.ui.showPartialEntryForm = !state.ui.showPartialEntryForm;
+        state.ui.showPartialEntryForm = true;
+        state.ui.editingPartialGradeId = "";
+        save();
+        render();
+      });
+      document.querySelector(".close-partial-entry-form")?.addEventListener("click", () => {
+        state.ui.showPartialEntryForm = false;
+        state.ui.editingPartialGradeId = "";
         save();
         render();
       });
@@ -636,38 +943,30 @@ const askStudyUpAI = async (message, attachment) => {
         event.preventDefault();
         const data = formData(event.currentTarget);
         if (selectedPartial?.type === "partial") {
-          selectedPartial.partialGrades.push({ id: uid("part"), title: data.title, date: data.date || todayIso(), value: Number(data.value) });
+          const editing = selectedPartial.partialGrades.find((grade) => grade.id === state.ui.editingPartialGradeId);
+          if (editing) {
+            editing.title = data.title;
+            editing.value = Number(data.value);
+          } else {
+            selectedPartial.partialGrades.push({ id: uid("part"), title: data.title, date: todayIso(), value: Number(data.value) });
+          }
         }
         state.ui.showPartialEntryForm = false;
+        state.ui.editingPartialGradeId = "";
         save();
         render();
       });
-      document.querySelectorAll(".rename-grade").forEach((button) => button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const subject = gradeSubjectById(state.ui.selectedGradeSubject);
-        if (!subject) return;
-        const partialId = button.dataset.partial;
-        const grade = partialId ? gradeEntryById(subject, partialId)?.partialGrades.find((entry) => entry.id === button.dataset.grade) : gradeEntryById(subject, button.dataset.grade);
-        if (!grade) return;
-        const nextTitle = prompt("Neuer Name", grade.title);
-        if (nextTitle?.trim()) {
-          grade.title = nextTitle.trim();
-          save();
-          render();
-        }
-      }));
-      document.querySelectorAll(".delete-grade").forEach((button) => button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const subject = gradeSubjectById(state.ui.selectedGradeSubject);
-        if (!subject) return;
-        const partialId = button.dataset.partial;
-        if (partialId) {
-          const partial = gradeEntryById(subject, partialId);
-          if (partial?.partialGrades) partial.partialGrades = partial.partialGrades.filter((entry) => entry.id !== button.dataset.grade);
-        } else {
-          subject.grades = subject.grades.filter((grade) => grade.id !== button.dataset.grade);
-          if (state.ui.selectedPartialGroup === button.dataset.grade) state.ui.selectedPartialGroup = null;
-        }
+      document.querySelector(".delete-editing-partial-grade")?.addEventListener("click", () => {
+        if (selectedPartial?.type !== "partial" || !state.ui.editingPartialGradeId) return;
+        selectedPartial.partialGrades = selectedPartial.partialGrades.filter((entry) => entry.id !== state.ui.editingPartialGradeId);
+        state.ui.showPartialEntryForm = false;
+        state.ui.editingPartialGradeId = "";
+        save();
+        render();
+      });
+      document.querySelectorAll(".open-partial-grade-edit").forEach((button) => button.addEventListener("click", () => {
+        state.ui.editingPartialGradeId = button.dataset.id;
+        state.ui.showPartialEntryForm = true;
         save();
         render();
       }));
@@ -690,18 +989,24 @@ const askStudyUpAI = async (message, attachment) => {
         save();
         render();
       });
+      document.querySelectorAll(".calendar-month-step").forEach((button) => button.addEventListener("click", () => {
+        state.ui.calendarMonthOffset = Number(state.ui.calendarMonthOffset || 0) + Number(button.dataset.offset || 0);
+        save();
+        render();
+      }));
       document.querySelector("#event-form")?.addEventListener("submit", (event) => {
         event.preventDefault();
         const data = formData(event.currentTarget);
         if (data.kind === "exam") {
-          state.exams.unshift({ id: uid("exam"), subject: data.subject, title: data.title, date: data.date, targetGrade: "", minutesPerDay: Number(data.minutes || 25), topics: topicList(data.topics || data.title) });
-          state.planEvents.unshift(...createAutoPlan({ subject: data.subject, title: data.title, date: data.date, minutes: data.minutes, topics: data.topics || data.title }));
+          state.exams.unshift({ id: uid("exam"), subject: data.subject, title: data.title, date: data.date, targetGrade: "", minutesPerDay: 25, topics: [data.title] });
+          if (data.autoPlan === "yes") state.planEvents.unshift(...createExamWeekPlan({ subject: data.subject, title: data.title, date: data.date }));
         } else if (data.kind === "homework") {
-          state.homework.unshift({ id: uid("hw"), subject: data.subject, title: data.title, description: data.topics || "", dueDate: data.date, priority: "Mittel", status: "Offen" });
+          state.homework.unshift({ id: uid("hw"), subject: data.subject, title: data.title, description: "", dueDate: data.date, priority: "Mittel", status: "Offen" });
         } else {
-          state.planEvents.unshift({ id: uid("event"), subject: data.subject, title: data.title, date: data.date, minutes: Number(data.minutes || 25), type: "Termin", auto: false });
+          state.planEvents.unshift({ id: uid("event"), subject: data.subject, title: data.title, date: data.date, minutes: 25, type: "Termin", auto: false });
         }
         state.ui.showEventForm = false;
+        event.currentTarget.reset();
         pushNotification("Eintrag gespeichert", `${data.subject}: ${data.title}`);
         save();
         render();
@@ -712,26 +1017,40 @@ const askStudyUpAI = async (message, attachment) => {
       document.querySelector("#card-search")?.addEventListener("input", (event) => {
         state.ui.cardSearch = event.currentTarget.value;
         save();
+      });
+      document.querySelector("#card-search")?.addEventListener("change", () => {
         render();
       });
-     document.querySelectorAll(".quizlet-large-stack").forEach((button) => button.addEventListener("click", () => {
+     document.querySelectorAll(".stack-main").forEach((button) => button.addEventListener("click", () => {
   const pack = recommendedPack();
+  state.ui.cardStudyOpen = true;
+  state.ui.cardStudyBucket = "";
+  state.ui.cardStudySource = button.dataset.source || "";
+  state.ui.cardStudyIndex = 0;
   if (button.dataset.stack === "recommended" && pack) {
-    const limit = state.settings.premiumActive ? pack.cards.length : Math.min(pack.freeCount, pack.cards.length);
-    const existing = new Set(state.flashcards.filter((card) => card.packId === pack.id).map((card) => card.question));
-    pack.cards.slice(0, limit).forEach((card) => {
-      if (!existing.has(card.question)) state.flashcards.push({ id: uid("card"), subject: pack.subject, packId: pack.id, source: "database", reviewCount: 0, published: true, ...card });
-    });
-    state.ui.selectedCardSubject = pack.subject;
+    state.ui.cardStudyMode = "pack";
+    state.ui.cardStudyPackId = pack.id;
   } else {
-    state.ui.selectedCardSubject = "";
+    state.ui.cardStudyMode = "personal";
+    state.ui.cardStudyPackId = "";
   }
   save();
   render();
 }));
+      document.querySelectorAll(".deck-count-pill").forEach((button) => button.addEventListener("click", () => {
+        state.ui.cardStudyOpen = true;
+        state.ui.cardStudyMode = "bucket";
+        state.ui.cardStudyBucket = button.dataset.bucket || "";
+        state.ui.cardStudySource = button.dataset.source || "";
+        state.ui.cardStudyPackId = button.dataset.pack || "";
+        state.ui.cardStudyIndex = 0;
+        save();
+        render();
+      }));
 
 document.querySelector("#toggle-card-create")?.addEventListener("click", () => {
-  state.ui.cardCreateOpen = !state.ui.cardCreateOpen;
+  state.ui.cardCreateOpen = true;
+  state.ui.cardCreateMode = "";
   save();
   render();
 });
@@ -741,16 +1060,73 @@ document.querySelectorAll(".choose-card-mode").forEach((button) => button.addEve
   save();
   render();
 }));
+      document.querySelectorAll(".close-card-create").forEach((button) => button.addEventListener("click", () => {
+        state.ui.cardCreateOpen = false;
+        state.ui.cardCreateMode = "";
+        save();
+        render();
+      }));
+      document.querySelector("#card-form")?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const data = formData(event.currentTarget);
+        state.flashcards.unshift({
+          id: uid("card"),
+          subject: data.subject,
+          title: data.subject,
+          question: data.question,
+          answer: data.answer,
+          difficulty: Number(data.difficulty || 2),
+          reviewCount: 0,
+          source: "private",
+          published: false
+        });
+        state.ui.cardCreateOpen = false;
+        state.ui.cardCreateMode = "";
+        state.ui.selectedCardSubject = data.subject;
+        save();
+        render();
+      });
+      document.querySelector(".study-flashcard")?.addEventListener("click", (event) => {
+        event.currentTarget.classList.toggle("flipped");
+      });
+      document.querySelector(".study-prev")?.addEventListener("click", () => {
+        state.ui.cardStudyIndex = Math.max(0, Number(state.ui.cardStudyIndex || 0) - 1);
+        save();
+        render();
+      });
+      document.querySelector(".study-next")?.addEventListener("click", () => {
+        state.ui.cardStudyIndex = Math.min(activeStudyCards().length - 1, Number(state.ui.cardStudyIndex || 0) + 1);
+        save();
+        render();
+      });
+      document.querySelectorAll(".card-rating-card").forEach((button) => button.addEventListener("click", () => {
+        const cards = activeStudyCards();
+        const index = Math.min(Math.max(Number(state.ui.cardStudyIndex || 0), 0), Math.max(cards.length - 1, 0));
+        rateStudyCard(cards[index], button.dataset.rating);
+        save();
+        render();
+      }));
+      document.querySelector(".close-card-study")?.addEventListener("click", () => {
+        state.ui.cardStudyOpen = false;
+        state.ui.cardStudyPackId = "";
+        state.ui.cardStudyIndex = 0;
+        state.ui.cardStudyMode = "pack";
+        state.ui.cardStudyBucket = "";
+        state.ui.cardStudySource = "";
+        save();
+        render();
+      });
       document.querySelector("#photo-card-input")?.addEventListener("change", (event) => {
         const file = event.currentTarget.files?.[0];
         if (!file) return;
-        const subject = document.querySelector("#photo-card-subject")?.value.trim() || "AI Karten";
+        const subject = document.querySelector("#photo-card-subject")?.value.trim() || "AI Cards";
         [
           { question: "Wort 1 aus dem Foto", answer: "Bedeutung prüfen", difficulty: 2 },
           { question: "Wort 2 aus dem Foto", answer: "Beispielsatz bilden", difficulty: 3 },
           { question: "Wort 3 aus dem Foto", answer: "Übersetzung wiederholen", difficulty: 2 }
         ].forEach((card) => state.flashcards.push({ id: uid("card"), subject, title: subject, reviewCount: 0, source: "ai", published: false, imageName: file.name, ...card }));
         state.ui.cardCreateOpen = false;
+        state.ui.cardCreateMode = "";
         state.ui.selectedCardSubject = subject;
         save();
         render();

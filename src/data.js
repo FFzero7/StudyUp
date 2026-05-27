@@ -46,6 +46,7 @@
     goals: [],
     planEvents: [],
     flashcards: [],
+    cardReviewStatus: {},
     cardLibrary: [
       {
         id: "fr-unit-1",
@@ -94,9 +95,18 @@
       showPartialEntryForm: false,
       showEventForm: false,
       showExamForm: false,
+      calendarMonthOffset: 0,
+      editingGradeId: "",
+      editingPartialGradeId: "",
       cardSearch: "",
       cardCreateOpen: false,
       cardCreateMode: "",
+      cardStudyOpen: false,
+      cardStudyPackId: "",
+      cardStudyIndex: 0,
+      cardStudyMode: "pack",
+      cardStudyBucket: "",
+      cardStudySource: "",
       lastPhotoName: "",
       chatAttachmentName: ""
     }
