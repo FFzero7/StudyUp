@@ -5,6 +5,7 @@
   const themeIcon = document.querySelector("#theme-icon");
   const themeLabel = document.querySelector("#theme-label");
   const notificationButton = document.querySelector("#notification-button");
+  const logoutButton = document.querySelector("#logout-button");
   const C = window.StudyUpComponents;
   let state = window.StudyUpStorage.load();
 
@@ -1200,6 +1201,29 @@ if (route === "bot") {
     render();
   });
   notificationButton?.addEventListener("click", requestNotifications);
+  logoutButton?.addEventListener("click", () => {
+  state.user = {
+    ...state.user,
+    loggedIn: false
+  };
+
+  state.ui = {
+    ...state.ui,
+    selectedGradeSubject: null,
+    selectedPartialGroup: null,
+    showSubjectForm: false,
+    showGradeEntryForm: false,
+    showTargetGradeForm: false,
+    showPartialEntryForm: false,
+    showEventForm: false,
+    cardCreateOpen: false,
+    cardStudyOpen: false
+  };
+
+  location.hash = "#dashboard";
+  save();
+  render();
+});
 
   ensureCollections();
   applyTheme();
