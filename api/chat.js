@@ -1,5 +1,21 @@
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5-mini";
 
+function getResponseText(data) {
+  if (data.output_text) return data.output_text;
+
+  const textParts = [];
+
+  for (const item of data.output || []) {
+    for (const content of item.content || []) {
+      if (content.type === "output_text" && content.text) {
+        textParts.push(content.text);
+      }
+    }
+  }
+
+  return textParts.join("\n").trim();
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -47,8 +63,10 @@ module.exports = async function handler(req, res) {
       });
     }
 
+    const answer = getResponseText(data);
+
     return res.status(200).json({
-      answer: data.output_text || "I could not make an answer."
+      answer: answer || "The AI answered, but I could not read the response text."
     });
   } catch (err) {
     return res.status(500).json({ error: err.message || "Server error" });
