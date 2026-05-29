@@ -49,6 +49,11 @@
   const ensureCollections = () => {
     state.user = { ...window.StudyUpSeed.user, ...(state.user || {}) };
     state.settings = { ...window.StudyUpSeed.settings, ...(state.settings || {}) };
+    state.settings.aiQuestionsDate = state.settings.aiQuestionsDate || todayIso();
+    if (state.settings.aiQuestionsDate !== todayIso()) {
+      state.settings.aiQuestionsDate = todayIso();
+      state.settings.aiQuestionsUsed = 0;
+    }
     state.gradeSystems = state.gradeSystems?.length ? state.gradeSystems : copy(window.StudyUpSeed.gradeSystems);
     state.gradeSystems = state.gradeSystems.map((system) => (
       system.id === "ch" ? { ...system, step: 0.01, example: "5.75" } : system
@@ -144,6 +149,8 @@
     const clean = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
     return `${rounded > 0 ? "+" : ""}${clean} P`;
   };
+  const currentAiLimit = () => state.settings.premiumActive ? Number(state.settings.premiumAiDailyLimit || 15) : Number(state.settings.aiLimit || 5);
+  const aiLimitLabel = () => state.settings.premiumActive ? `${currentAiLimit()} AI-Fragen pro Tag` : `${currentAiLimit()} AI-Fragen`;
   const topicList = (topics) => Array.isArray(topics) ? topics : String(topics || "").split(",").map((topic) => topic.trim()).filter(Boolean);
   const cardText = () => {
     const lang = String(state.settings.language || "en-US").slice(0, 2);
@@ -363,12 +370,17 @@
     const avg = subjectHasGrades(subject) ? average(subject.grades) : null;
     const points = plusPointsFor(subject);
     return `
-      <button class="grade-folder" data-id="${subject.id}" type="button">
-        <span class="folder-icon">${C.icon("book")}</span>
-        <div><strong>${C.escapeHtml(subject.name)}</strong><small>${subject.grades.length} Einträge</small></div>
-        <em>${avg === null ? "–" : avg.toFixed(2)}</em>
-        <b class="${points >= 0 ? "positive" : "negative"}">${formatPlusPoints(points)}</b>
-      </button>
+      <article class="subject-swipe-row" data-id="${subject.id}">
+        <button class="grade-folder" data-id="${subject.id}" type="button">
+          <span class="folder-icon">${C.icon("book")}</span>
+          <div><strong>${C.escapeHtml(subject.name)}</strong><small>${subject.grades.length} Einträge</small></div>
+          <em>${avg === null ? "–" : avg.toFixed(2)}</em>
+          <b class="${points >= 0 ? "positive" : "negative"}">${formatPlusPoints(points)}</b>
+        </button>
+        <div class="subject-row-actions">
+          <button class="delete-subject" data-id="${subject.id}" type="button" aria-label="${C.escapeHtml(subject.name)} löschen">${C.icon("trash")}</button>
+        </div>
+      </article>
     `;
   }).join("") || `<div class="empty-grade-list">Füge oben dein erstes Fach hinzu.</div>`;
 
@@ -670,13 +682,13 @@
             </span>
           </button>
           <div class="card-study-controls">
-            <button class="secondary-button study-prev" type="button" ${safeIndex <= 0 ? "disabled" : ""}>${C.escapeHtml(t.previous)}</button>
+            <button class="study-arrow-button study-prev" type="button" aria-label="${C.escapeHtml(t.previous)}" ${safeIndex <= 0 ? "disabled" : ""}>‹</button>
             <span class="card-counter">${safeIndex + 1} / ${cards.length}</span>
-            <button class="primary-button study-next" type="button" ${safeIndex >= cards.length - 1 ? "disabled" : ""}>${C.escapeHtml(t.next)}</button>
+            <button class="study-arrow-button study-next" type="button" aria-label="${C.escapeHtml(t.next)}" ${safeIndex >= cards.length - 1 ? "disabled" : ""}>›</button>
           </div>
           <div class="card-rating-grid two-options">
-            <button class="card-rating-card bad" data-rating="bad" type="button"><span></span><strong>${C.escapeHtml(t.bad)}</strong></button>
             <button class="card-rating-card good" data-rating="good" type="button"><span></span><strong>${C.escapeHtml(t.good)}</strong></button>
+            <button class="card-rating-card bad" data-rating="bad" type="button"><span></span><strong>${C.escapeHtml(t.bad)}</strong></button>
           </div>
         ` : C.emptyState(t.empty, t.emptyText)}
       </section>
@@ -695,8 +707,8 @@
           <em>${actionText}</em>
         </button>
         <div class="deck-status-column">
-          <button class="deck-count-pill good" data-bucket="good" data-source="${source}" data-pack="${C.escapeHtml(packId || "")}" type="button"><strong>${counts.good}</strong><span>${C.escapeHtml(cardText().good)}</span></button>
-          <button class="deck-count-pill bad" data-bucket="bad" data-source="${source}" data-pack="${C.escapeHtml(packId || "")}" type="button"><strong>${counts.bad}</strong><span>${C.escapeHtml(cardText().bad)}</span></button>
+          <button class="deck-count-pill good" data-bucket="good" data-source="${source}" data-pack="${C.escapeHtml(packId || "")}" type="button" aria-label="${C.escapeHtml(cardText().good)}: ${counts.good}"><strong>${counts.good}</strong></button>
+          <button class="deck-count-pill bad" data-bucket="bad" data-source="${source}" data-pack="${C.escapeHtml(packId || "")}" type="button" aria-label="${C.escapeHtml(cardText().bad)}: ${counts.bad}"><strong>${counts.bad}</strong></button>
         </div>
       </article>
     `;
@@ -767,9 +779,9 @@ const askStudyUpAI = async (message, attachment) => {
 
   const renderPremium = () => `
     ${C.sectionTitle("Premium", "StudyUp Plus")}
-    <section class="pricing-grid premium-grid">
-      <article class="price-card"><span>Basis Version</span><h2>Basis</h2><strong>CHF 0</strong><ul><li>5 AI-Fragen</li><li>Begrenzte Datenbank-Cards</li><li>Einfache Lernpläne</li></ul><button class="secondary-button" type="button">Aktueller Plan</button></article>
-      <article class="price-card featured"><span>Premium</span><h2>StudyUp Plus</h2><strong>CHF 4.90</strong><ul><li>Unbegrenzte AI-Hilfe</li><li>Alle Datenbank-Sets</li><li>Automatische Lernpläne</li><li>Eigene Farben und Card-Stil</li></ul><button class="primary-button activate-plus" type="button">${state.settings.premiumActive ? "Plus aktiv" : "Zahlen und Plus aktivieren"}</button></article>
+      <section class="pricing-grid premium-grid">
+        <article class="price-card"><span>Basis Version</span><h2>Basis</h2><strong>CHF 0</strong><ul><li>5 AI-Fragen</li><li>Begrenzte Datenbank-Cards</li><li>Einfache Lernpläne</li></ul><button class="secondary-button" type="button">Aktueller Plan</button></article>
+      <article class="price-card featured"><span>Premium</span><h2>StudyUp Plus</h2><strong>CHF 4.90</strong><ul><li>15 AI-Fragen pro Tag</li><li>Alle Datenbank-Sets</li><li>Automatische Lernpläne</li><li>Eigene Farben und Card-Stil</li></ul><button class="primary-button activate-plus" type="button">${state.settings.premiumActive ? "Plus aktiv" : "Zahlen und Plus aktivieren"}</button></article>
     </section>
     <section class="panel customize-panel ${state.settings.premiumActive ? "" : "locked"}">
       <div class="panel-header"><div><span>Selbstgestaltung</span><h2>Dein Look</h2></div>${state.settings.premiumActive ? C.icon("palette") : C.icon("lock")}</div>
@@ -831,6 +843,8 @@ const askStudyUpAI = async (message, attachment) => {
         render();
       });
       document.querySelectorAll(".grade-folder").forEach((button) => button.addEventListener("click", () => {
+        const row = button.closest(".subject-swipe-row");
+        if (row?.classList.contains("show-actions")) return;
         state.ui.selectedGradeSubject = button.dataset.id;
         state.ui.selectedPartialGroup = null;
         state.ui.showSubjectForm = false;
@@ -839,6 +853,33 @@ const askStudyUpAI = async (message, attachment) => {
         state.ui.showPartialEntryForm = false;
         state.ui.editingGradeId = "";
         state.ui.editingPartialGradeId = "";
+        save();
+        render();
+      }));
+      document.querySelectorAll(".subject-swipe-row").forEach((row) => {
+        let startX = 0;
+        let startY = 0;
+        row.addEventListener("pointerdown", (event) => {
+          startX = event.clientX || 0;
+          startY = event.clientY || 0;
+        }, { passive: true });
+        row.addEventListener("pointerup", (event) => {
+          const endX = event.clientX || startX;
+          const endY = event.clientY || startY;
+          const deltaX = startX - endX;
+          const deltaY = Math.abs(startY - endY);
+          if (deltaX > 34 && deltaY < 40) row.classList.add("show-actions");
+          if (deltaX < -24) row.classList.remove("show-actions");
+        }, { passive: true });
+      });
+      document.querySelectorAll(".delete-subject").forEach((button) => button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const id = button.dataset.id;
+        state.subjects = state.subjects.filter((subject) => subject.id !== id);
+        if (state.ui.selectedGradeSubject === id) {
+          state.ui.selectedGradeSubject = null;
+          state.ui.selectedPartialGroup = null;
+        }
         save();
         render();
       }));
@@ -1157,8 +1198,8 @@ if (route === "bot") {
 
     if (!message && !attachment) return;
 
-    if (!state.settings.premiumActive && state.settings.aiQuestionsUsed >= state.settings.aiLimit) {
-      state.chat.push({ id: uid("msg"), role: "bot", text: "Basis-Limit erreicht: 5 AI-Fragen sind genutzt." });
+    if (state.settings.aiQuestionsUsed >= currentAiLimit()) {
+      state.chat.push({ id: uid("msg"), role: "bot", text: `${state.settings.premiumActive ? "Plus" : "Basis"}-Limit erreicht: ${aiLimitLabel()} sind genutzt.` });
     } else {
       state.chat.push({ id: uid("msg"), role: "user", text: `${message || "Foto-Frage"}${attachment ? ` [Foto: ${attachment}]` : ""}` });
 
@@ -1171,7 +1212,7 @@ if (route === "bot") {
         botMessage.text = "AI error: " + error.message;
       }
 
-      if (!state.settings.premiumActive) state.settings.aiQuestionsUsed += 1;
+      state.settings.aiQuestionsUsed += 1;
     }
 
     state.ui.chatAttachmentName = "";
