@@ -17,16 +17,66 @@
           <span><strong>StudyUp</strong><small>StudyUp.com</small></span>
         </a>
         <div class="top-actions">
-          <button id="notification-button" class="top-icon-button" type="button" title="Mitteilungen aktivieren">
-            <span aria-hidden="true">!</span><span>Mitteilungen</span>
-          </button>
           <button id="theme-toggle" class="top-icon-button" type="button" title="Hell- und Dunkelmodus wechseln">
-            <span id="theme-icon" aria-hidden="true">&#9790;</span><span id="theme-label">Dunkel</span>
+            <span id="theme-icon" aria-hidden="true">&#9790;</span>
           </button>
-          <button id="logout-button" class="top-icon-button" type="button" title="Ausloggen">
-            <span aria-hidden="true">&#8634;</span><span>Logout</span>
-          </button>
-          <div class="sync-state"><span class="status-dot"></span>Lokal gespeichert</div>
+          <div class="account-menu">
+            <button id="account-button" class="account-button" type="button" aria-expanded="false" aria-label="Account öffnen">
+              <span id="account-avatar" aria-hidden="true">SU</span>
+            </button>
+            <section id="account-panel" class="account-panel" aria-label="Accountdetails">
+              <strong id="account-name">StudyUp</strong>
+              <span id="account-email">Lokaler Account</span>
+              <div class="account-detail-row"><small>Plan</small><b id="account-plan">Free</b></div>
+              <div class="account-detail-row"><small>Region</small><b id="account-region">Schweiz</b></div>
+              <details class="account-design">
+                <summary>Design anpassen</summary>
+                <div class="account-design-grid">
+                  <label>Theme<select name="theme" class="account-setting">
+                    <option value="light">Hell</option>
+                    <option value="dark">Dunkel</option>
+                  </select></label>
+                  <label>Akzent<select name="accent" class="account-setting" data-min-plan="plus">
+                    <option value="blue">Blau</option>
+                    <option value="green">Grün</option>
+                    <option value="violet">Violett</option>
+                    <option value="coral">Koralle</option>
+                    <option value="teal">Türkis</option>
+                    <option value="rose">Rosa</option>
+                    <option value="amber">Gold</option>
+                    <option value="slate">Graphit</option>
+                  </select></label>
+                  <label>Kartenstil<select name="cardStyle" class="account-setting" data-min-plan="plus">
+                    <option value="stacked">Gestapelt</option>
+                    <option value="clean">Clean</option>
+                    <option value="bold">Bold</option>
+                  </select></label>
+                  <label>Dichte<select name="density" class="account-setting" data-min-plan="plus">
+                    <option value="comfortable">Normal</option>
+                    <option value="compact">Kompakt</option>
+                    <option value="spacious">Großzügig</option>
+                  </select></label>
+                  <label>Rundung<select name="radius" class="account-setting" data-min-plan="plus">
+                    <option value="soft">Weich</option>
+                    <option value="sharp">Klar</option>
+                    <option value="round">Rund</option>
+                  </select></label>
+                  <label>Oberfläche<select name="surface" class="account-setting" data-min-plan="plus">
+                    <option value="clean">Clean</option>
+                    <option value="glass">Glas</option>
+                    <option value="contrast">Kontrast</option>
+                  </select></label>
+                  <label>Pro-Stil<select name="proStyle" class="account-setting" data-min-plan="pro">
+                    <option value="focus">Focus</option>
+                    <option value="exam">Exam Mode</option>
+                    <option value="elite">Elite</option>
+                  </select></label>
+                </div>
+                <p id="account-design-note" class="account-design-note">Plus und Pro schalten alle Design-Optionen frei.</p>
+              </details>
+              <button id="account-logout" class="account-logout" type="button">Ausloggen</button>
+            </section>
+          </div>
         </div>
       </header>
       <main id="app" class="main-content" aria-live="polite"></main>
