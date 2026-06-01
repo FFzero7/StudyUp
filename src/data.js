@@ -7,10 +7,10 @@
       region: "ch"
     },
     settings: {
-      planName: "Basis",
+      plan: "free",
+      planName: "Free",
       premiumActive: false,
-      aiLimit: 5,
-      premiumAiDailyLimit: 15,
+      aiLimit: 10,
       aiQuestionsUsed: 0,
       aiQuestionsDate: "",
       theme: "light",
@@ -18,7 +18,11 @@
       gradeSystem: "ch",
       language: "de-CH",
       dashboardStyle: "compact",
-      cardStyle: "stacked"
+      cardStyle: "stacked",
+      proStyle: "focus",
+      density: "comfortable",
+      radius: "soft",
+      surface: "clean"
     },
     gradeSystems: [
       { id: "ch", name: "Schweiz", language: "de-CH", label: "Noten 1-6", min: 1, max: 6, step: 0.01, pass: 4, higherIsBetter: true, example: "5.75" },

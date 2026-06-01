@@ -3,14 +3,29 @@
   const navLinks = document.querySelectorAll("[data-route]");
   const themeToggle = document.querySelector("#theme-toggle");
   const themeIcon = document.querySelector("#theme-icon");
-  const themeLabel = document.querySelector("#theme-label");
-  const notificationButton = document.querySelector("#notification-button");
-  const logoutButton = document.querySelector("#logout-button");
+  const accountButton = document.querySelector("#account-button");
+  const accountPanel = document.querySelector("#account-panel");
+  const accountAvatar = document.querySelector("#account-avatar");
+  const accountName = document.querySelector("#account-name");
+  const accountEmail = document.querySelector("#account-email");
+  const accountPlan = document.querySelector("#account-plan");
+  const accountRegion = document.querySelector("#account-region");
+  const accountLogout = document.querySelector("#account-logout");
+  const accountDesignNote = document.querySelector("#account-design-note");
   const C = window.StudyUpComponents;
   let state = window.StudyUpStorage.load();
 
   const routes = ["dashboard", "grades", "planner", "cards", "bot", "premium"];
-  const accentColors = { blue: "#2563eb", green: "#10b981", violet: "#7c3aed", coral: "#f97316" };
+  const accentColors = {
+    blue: "#2563eb",
+    green: "#10b981",
+    violet: "#7c3aed",
+    coral: "#f97316",
+    teal: "#14b8a6",
+    rose: "#e11d48",
+    amber: "#f59e0b",
+    slate: "#475569"
+  };
   const planSteps = ["Wiederholen", "Üben", "Cards", "Mini-Test", "Fehleranalyse", "Prüfungssimulation"];
 
   const uid = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -21,6 +36,19 @@
   const dateObject = (iso) => new Date(`${iso}T12:00:00`);
   const save = () => window.StudyUpStorage.save(state);
   const formData = (form) => Object.fromEntries(new FormData(form).entries());
+  const planNames = { free: "Free", plus: "Plus", pro: "Pro" };
+  const planLimits = { free: 10, plus: 300, pro: 1000 };
+  const currentMonthKey = () => todayIso().slice(0, 7);
+  const currentPlan = () => {
+    const plan = String(state.settings?.plan || "").toLowerCase();
+    if (plan === "pro") return "pro";
+    if (plan === "plus") return "plus";
+    return state.settings?.premiumActive ? "plus" : "free";
+  };
+  const isPlus = () => ["plus", "pro"].includes(currentPlan());
+  const isPro = () => currentPlan() === "pro";
+  const aiLimitForPlan = (plan = currentPlan()) => planLimits[plan] || planLimits.free;
+  const planLabel = (plan = currentPlan()) => planNames[plan] || planNames.free;
   const normalizePartialGrade = (grade) => ({
     id: grade.id || uid("part"),
     title: grade.title || "Teilprüfung",
@@ -49,10 +77,21 @@
   const ensureCollections = () => {
     state.user = { ...window.StudyUpSeed.user, ...(state.user || {}) };
     state.settings = { ...window.StudyUpSeed.settings, ...(state.settings || {}) };
-    state.settings.aiQuestionsDate = state.settings.aiQuestionsDate || todayIso();
-    if (state.settings.aiQuestionsDate !== todayIso()) {
-      state.settings.aiQuestionsDate = todayIso();
+    state.settings.plan = currentPlan();
+    state.settings.premiumActive = state.settings.plan !== "free";
+    state.settings.planName = planLabel(state.settings.plan);
+    state.settings.aiLimit = aiLimitForPlan(state.settings.plan);
+    state.settings.density = state.settings.density || "comfortable";
+    state.settings.radius = state.settings.radius || "soft";
+    state.settings.surface = state.settings.surface || "clean";
+    state.settings.cardStyle = state.settings.cardStyle || "stacked";
+    state.settings.proStyle = state.settings.proStyle || "focus";
+    const questionPeriod = String(state.settings.aiQuestionsDate || "");
+    if (!questionPeriod.startsWith(currentMonthKey())) {
+      state.settings.aiQuestionsDate = currentMonthKey();
       state.settings.aiQuestionsUsed = 0;
+    } else {
+      state.settings.aiQuestionsDate = currentMonthKey();
     }
     state.gradeSystems = state.gradeSystems?.length ? state.gradeSystems : copy(window.StudyUpSeed.gradeSystems);
     state.gradeSystems = state.gradeSystems.map((system) => (
@@ -149,8 +188,8 @@
     const clean = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
     return `${rounded > 0 ? "+" : ""}${clean} P`;
   };
-  const currentAiLimit = () => state.settings.premiumActive ? Number(state.settings.premiumAiDailyLimit || 15) : Number(state.settings.aiLimit || 5);
-  const aiLimitLabel = () => state.settings.premiumActive ? `${currentAiLimit()} AI-Fragen pro Tag` : `${currentAiLimit()} AI-Fragen`;
+  const currentAiLimit = () => aiLimitForPlan();
+  const aiLimitLabel = () => `${currentAiLimit()} AI-Fragen pro Monat`;
   const topicList = (topics) => Array.isArray(topics) ? topics : String(topics || "").split(",").map((topic) => topic.trim()).filter(Boolean);
   const cardText = () => {
     const lang = String(state.settings.language || "en-US").slice(0, 2);
@@ -243,13 +282,34 @@
     const system = currentSystem();
     document.title = "StudyUp.com";
     document.documentElement.dataset.theme = state.settings.theme;
+    document.documentElement.dataset.density = state.settings.density || "comfortable";
+    document.documentElement.dataset.radius = state.settings.radius || "soft";
+    document.documentElement.dataset.surface = state.settings.surface || "clean";
+    document.documentElement.dataset.cardStyle = state.settings.cardStyle || "stacked";
+    document.documentElement.dataset.proStyle = state.settings.proStyle || "focus";
     document.documentElement.lang = state.settings.language || system.language;
     document.body.classList.toggle("is-locked", !state.user.loggedIn);
     const accent = accentColors[state.settings.accent] || accentColors.blue;
     document.documentElement.style.setProperty("--accent", accent);
     document.documentElement.style.setProperty("--accent-soft", `${accent}1A`);
     if (themeIcon) themeIcon.innerHTML = state.settings.theme === "dark" ? "&#9728;" : "&#9790;";
-    if (themeLabel) themeLabel.textContent = state.settings.theme === "dark" ? "Hell" : "Dunkel";
+    if (themeToggle) themeToggle.title = state.settings.theme === "dark" ? "Hellmodus aktivieren" : "Dunkelmodus aktivieren";
+    const initials = String(state.user.name || "StudyUp").trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "SU";
+    if (accountAvatar) accountAvatar.textContent = initials;
+    if (accountName) accountName.textContent = state.user.name || "StudyUp";
+    if (accountEmail) accountEmail.textContent = state.user.email || "Lokaler Account";
+    if (accountPlan) accountPlan.textContent = planLabel();
+    if (accountRegion) accountRegion.textContent = currentSystem()?.name || state.user.region || "Schweiz";
+    document.querySelectorAll(".account-setting").forEach((control) => {
+      control.value = state.settings[control.name] || control.value;
+      const minPlan = control.dataset.minPlan || "free";
+      control.disabled = minPlan === "pro" ? !isPro() : minPlan === "plus" ? !isPlus() : false;
+    });
+    if (accountDesignNote) {
+      accountDesignNote.textContent = isPlus()
+        ? "Deine Änderungen werden direkt gespeichert."
+        : "Plus und Pro schalten Farben, Kartenstil und Oberflächen frei.";
+    }
     const cardsNavLabel = document.querySelector('[data-route="cards"] span:last-child');
     const cardsNavLink = document.querySelector('[data-route="cards"]');
     if (cardsNavLabel) cardsNavLabel.textContent = cardText().section;
@@ -561,6 +621,12 @@
     return new Date(now.getFullYear(), now.getMonth() + Number(state.ui.calendarMonthOffset || 0), 1);
   };
 
+  const calendarOffsetForDate = (date) => {
+    const now = new Date();
+    const target = dateObject(date || todayIso());
+    return (target.getFullYear() - now.getFullYear()) * 12 + target.getMonth() - now.getMonth();
+  };
+
   const renderCalendar = () => {
     const selectedMonth = currentCalendarDate();
     const year = selectedMonth.getFullYear();
@@ -601,7 +667,7 @@
   const recommendedPack = () => filteredLibrary()[0] || state.cardLibrary[0];
   const cardsForPack = (pack) => {
     if (!pack?.cards?.length) return [];
-    const limit = state.settings.premiumActive ? pack.cards.length : Math.min(pack.freeCount || pack.cards.length, pack.cards.length);
+    const limit = isPlus() ? pack.cards.length : Math.min(pack.freeCount || pack.cards.length, pack.cards.length);
     return pack.cards.slice(0, limit).map((card, index) => ({
       id: `${pack.id}-${index}`,
       subject: pack.subject,
@@ -643,21 +709,26 @@
     state.ui.cardStudyIndex = Math.min(Number(state.ui.cardStudyIndex || 0) + 1, Math.max(cards.length - 1, 0));
   };
 
-  const renderCardCreateView = () => `
-    ${C.sectionTitle(cardText().section, cardText().section)}
-    <section class="create-card-sheet standalone-create show">
-      <div class="create-sheet-header">
-        <div><span>Neu</span><h2>${C.escapeHtml(cardText().create)}</h2></div>
-        <button class="ghost-icon close-card-create" type="button" aria-label="Schließen">&times;</button>
-      </div>
-      <div class="create-options">
-        <button class="secondary-button choose-card-mode" data-mode="ai" type="button">${C.icon("camera")} Mit AI</button>
-        <button class="secondary-button choose-card-mode" data-mode="self" type="button">${C.icon("add")} Selbst</button>
-      </div>
-      ${state.ui.cardCreateMode === "ai" ? `<div class="panel photo-card-panel"><h2>Vokabelheft fotografieren</h2><button class="ghost-button close-card-create" type="button">Abbrechen</button><label>Fach<input id="photo-card-subject" /></label><label class="upload-tile">${C.icon("camera")} Foto auswählen<input id="photo-card-input" type="file" accept="image/*" capture="environment" /></label></div>` : ""}
-      ${state.ui.cardCreateMode === "self" ? `<form class="panel form-panel" id="card-form"><div class="form-title-row"><h2>Eigene Karte</h2><button class="ghost-button close-card-create" type="button">Abbrechen</button></div><label>Titel / Fach<input name="subject" required /></label><label>Frage<textarea name="question" required rows="3"></textarea></label><label>Antwort<textarea name="answer" required rows="3"></textarea></label><label>Status<select name="difficulty"><option value="1" selected>Gut</option><option value="3">Schlecht</option></select></label><button class="primary-button" type="submit">Card speichern</button></form>` : ""}
-    </section>
-  `;
+  const renderCardCreateView = () => {
+    const aiAllowed = isPlus();
+    const freeCardLimitReached = !isPlus() && personalCards().length >= 50;
+    return `
+      ${C.sectionTitle(cardText().section, cardText().section)}
+      <section class="create-card-sheet standalone-create show">
+        <div class="create-sheet-header">
+          <div><span>Neu</span><h2>${C.escapeHtml(cardText().create)}</h2></div>
+          <button class="ghost-icon close-card-create" type="button" aria-label="Schließen">&times;</button>
+        </div>
+        <div class="create-options">
+          <button class="secondary-button choose-card-mode" data-mode="ai" type="button" ${aiAllowed ? "" : "disabled"}>${C.icon("camera")} ${aiAllowed ? "Mit AI" : "AI ab Plus"}</button>
+          <button class="secondary-button choose-card-mode" data-mode="self" type="button">${C.icon("add")} Selbst</button>
+        </div>
+        ${!aiAllowed ? `<div class="empty-state"><strong>AI-Karten sind Plus und Pro.</strong><p>Free bleibt zum Organisieren stark. Für AI-Karten kannst du später Plus oder Pro aktivieren.</p></div>` : ""}
+        ${state.ui.cardCreateMode === "ai" && aiAllowed ? `<div class="panel photo-card-panel"><h2>Vokabelheft fotografieren</h2><button class="ghost-button close-card-create" type="button">Abbrechen</button><label>Fach<input id="photo-card-subject" /></label><label class="upload-tile">${C.icon("camera")} Foto auswählen<input id="photo-card-input" type="file" accept="image/*" capture="environment" /></label><p class="plan-note">Plus enthält AI-Karten. Pro ist für größere Foto-Scans und Prüfungsvorbereitung gedacht.</p></div>` : ""}
+        ${state.ui.cardCreateMode === "self" ? `<form class="panel form-panel" id="card-form"><div class="form-title-row"><h2>Eigene Karte</h2><button class="ghost-button close-card-create" type="button">Abbrechen</button></div>${freeCardLimitReached ? `<div class="empty-state"><strong>Free-Limit erreicht.</strong><p>Free enthält 50 persönliche Karten. Plus und Pro heben dieses Limit auf.</p></div>` : ""}<label>Titel / Fach<input name="subject" required ${freeCardLimitReached ? "disabled" : ""} /></label><label>Frage<textarea name="question" required rows="3" ${freeCardLimitReached ? "disabled" : ""}></textarea></label><label>Antwort<textarea name="answer" required rows="3" ${freeCardLimitReached ? "disabled" : ""}></textarea></label><label>Status<select name="difficulty" ${freeCardLimitReached ? "disabled" : ""}><option value="1" selected>Gut</option><option value="3">Schlecht</option></select></label><button class="primary-button" type="submit" ${freeCardLimitReached ? "disabled" : ""}>Card speichern</button></form>` : ""}
+      </section>
+    `;
+  };
 
   const renderCardStudyView = () => {
     const t = cardText();
@@ -777,20 +848,181 @@ const askStudyUpAI = async (message, attachment) => {
     `;
   };
 
-  const renderPremium = () => `
-    ${C.sectionTitle("Premium", "StudyUp Plus")}
-      <section class="pricing-grid premium-grid">
-        <article class="price-card"><span>Basis Version</span><h2>Basis</h2><strong>CHF 0</strong><ul><li>5 AI-Fragen</li><li>Begrenzte Datenbank-Cards</li><li>Einfache Lernpläne</li></ul><button class="secondary-button" type="button">Aktueller Plan</button></article>
-      <article class="price-card featured"><span>Premium</span><h2>StudyUp Plus</h2><strong>CHF 4.90</strong><ul><li>15 AI-Fragen pro Tag</li><li>Alle Datenbank-Sets</li><li>Automatische Lernpläne</li><li>Eigene Farben und Card-Stil</li></ul><button class="primary-button activate-plus" type="button">${state.settings.premiumActive ? "Plus aktiv" : "Zahlen und Plus aktivieren"}</button></article>
-    </section>
-    <section class="panel customize-panel ${state.settings.premiumActive ? "" : "locked"}">
-      <div class="panel-header"><div><span>Selbstgestaltung</span><h2>Dein Look</h2></div>${state.settings.premiumActive ? C.icon("palette") : C.icon("lock")}</div>
-      <div class="custom-grid">
-        <label>Akzentfarbe<select name="accent" class="setting-control" ${state.settings.premiumActive ? "" : "disabled"}><option value="blue" ${state.settings.accent === "blue" ? "selected" : ""}>Blau</option><option value="green" ${state.settings.accent === "green" ? "selected" : ""}>Grün</option><option value="violet" ${state.settings.accent === "violet" ? "selected" : ""}>Violett</option><option value="coral" ${state.settings.accent === "coral" ? "selected" : ""}>Koralle</option></select></label>
-        <label>Card-Stil<select name="cardStyle" class="setting-control" ${state.settings.premiumActive ? "" : "disabled"}><option value="stacked" ${state.settings.cardStyle === "stacked" ? "selected" : ""}>Gestapelt</option><option value="clean" ${state.settings.cardStyle === "clean" ? "selected" : ""}>Clean</option></select></label>
-      </div>
-    </section>
-  `;
+  const renderPremium = () => {
+    const plan = currentPlan();
+    const lang = String(state.settings.language || "en-US").slice(0, 2);
+    const premiumText = lang === "de" ? {
+      title: "StudyUp Pläne",
+      planWord: "Plan",
+      headline: "Free, Plus oder Pro",
+      intro: "Free hilft dir beim Organisieren. Plus hilft dir, smarter zu lernen. Pro hilft dir, dich wie ein Top-Schüler auf Prüfungen vorzubereiten.",
+      freePosition: "Organisiert starten",
+      plusPosition: "Smarter lernen",
+      proPosition: "Wie ein Top-Schüler vorbereiten",
+      month: "/ Monat",
+      badge: "Am beliebtesten",
+      currentPlan: "Aktueller Plan",
+      included: "Enthalten",
+      plusIncluded: "In Pro enthalten",
+      plusActive: "Plus aktiv",
+      proActive: "Pro aktiv",
+      upgradePlus: "Auf Plus wechseln",
+      upgradePro: "Auf Pro wechseln",
+      customKicker: "Plus und Pro",
+      customTitle: "Eigene Designs",
+      proKicker: "Nur Pro",
+      proTitle: "Erweiterte Tools",
+      analytics: "Erweiterte Analysen",
+      analyticsText: "Erkenne Trends, bevor Noten fallen.",
+      exportCards: "Karteikarten exportieren",
+      exportText: "Lerne deine Sets auch außerhalb von StudyUp.",
+      examPrep: "Prüfungsvorbereitung",
+      examPrepText: "Schwierige Karten, Prüfungsmodus und Pro-Styles.",
+      features: {
+        free: [
+          "Notenübersicht",
+          "Notendurchschnitt berechnen",
+          "Einfacher Planer/Kalender",
+          "Hausaufgaben und Prüfungen verfolgen",
+          "3 Karteikarten-Stapel",
+          "50 persönliche Karten",
+          "10 AI-Fragen/Monat",
+          "Einfache Warnung bei schwachen Fächern",
+          "Einfache Lern-Erinnerungen",
+          "2 Basis-Designs"
+        ],
+        plus: [
+          "Alles aus Free",
+          "300 AI-Fragen/Monat",
+          "AI-Karteikarten-Generator",
+          "AI-Quiz-Generator",
+          "Smarte Lernpläne",
+          "Alle empfohlenen Karten-Stapel",
+          "Unbegrenzte persönliche Karteikarten",
+          "Smarte Erinnerungen",
+          "Wöchentlicher Lernbericht",
+          "Eigene Designs",
+          "Smarte Erkennung schwacher Fächer"
+        ],
+        pro: [
+          "Alles aus Plus",
+          "1.000 AI-Fragen/Monat",
+          "300 AI-Karteikarten-Generierungen/Monat",
+          "30 Foto-zu-Karteikarten-Scans/Monat",
+          "Erweiterte Analysen",
+          "Erweiterte Prüfungsvorbereitung",
+          "Modus für schwierige Karten",
+          "Karteikarten exportieren",
+          "Früher Zugang zu neuen Features",
+          "Pro-Styles und Designs"
+        ]
+      }
+    } : {
+      title: "StudyUp Plans",
+      planWord: "plan",
+      headline: "Free, Plus or Pro",
+      intro: "Free helps you get organized. Plus helps you study smarter. Pro helps you prepare like a top student.",
+      freePosition: "Get organized",
+      plusPosition: "Study smarter",
+      proPosition: "Prepare like a top student",
+      month: "/ month",
+      badge: "Most popular",
+      currentPlan: "Current plan",
+      included: "Included",
+      plusIncluded: "Included in Pro",
+      plusActive: "Plus active",
+      proActive: "Pro active",
+      upgradePlus: "Upgrade to Plus",
+      upgradePro: "Upgrade to Pro",
+      customKicker: "Plus and Pro",
+      customTitle: "Custom themes",
+      proKicker: "Pro only",
+      proTitle: "Advanced tools",
+      analytics: "Advanced analytics",
+      analyticsText: "See trends before grades drop.",
+      exportCards: "Export flashcards",
+      exportText: "Prepare sets outside StudyUp.",
+      examPrep: "Exam preparation",
+      examPrepText: "Hard-card review, exam mode and Pro styles.",
+      features: {
+        free: [
+          "Grades tracker",
+          "Grade average calculator",
+          "Basic planner/calendar",
+          "Homework and test tracking",
+          "3 flashcard decks",
+          "50 personal cards",
+          "10 AI questions/month",
+          "Basic weak subject warning",
+          "Basic study reminders",
+          "2 basic themes"
+        ],
+        plus: [
+          "Everything in Free",
+          "300 AI questions/month",
+          "AI flashcard generator",
+          "AI quiz generator",
+          "Smart study plans",
+          "Full recommended card decks",
+          "Unlimited personal flashcards",
+          "Smart reminders",
+          "Weekly study report",
+          "Custom themes",
+          "Smart weak subject detection"
+        ],
+        pro: [
+          "Everything in Plus",
+          "1,000 AI questions/month",
+          "300 AI flashcard generations/month",
+          "30 photo-to-flashcard scans/month",
+          "Advanced analytics",
+          "Advanced exam preparation",
+          "Hard-card review mode",
+          "Export flashcards",
+          "Early access to new features",
+          "Pro styles/themes"
+        ]
+      }
+    };
+    const list = (items) => `<ul>${items.map((item) => `<li>${C.escapeHtml(item)}</li>`).join("")}</ul>`;
+    const freeButton = plan === "free" ? premiumText.currentPlan : premiumText.included;
+    const plusButton = plan === "plus" ? premiumText.plusActive : plan === "pro" ? premiumText.plusIncluded : premiumText.upgradePlus;
+    const proButton = plan === "pro" ? premiumText.proActive : premiumText.upgradePro;
+    return `
+      ${C.sectionTitle("Premium", premiumText.title)}
+      <section class="pricing-grid premium-grid three-plans">
+        <article class="price-card ${plan === "free" ? "current" : ""}">
+          <div class="price-card-top"><span>${C.escapeHtml(premiumText.freePosition)}</span></div>
+          <h2>Free</h2>
+          <strong>CHF 0</strong>
+          ${list(premiumText.features.free)}
+          <button class="secondary-button plan-button" type="button" disabled>${freeButton}</button>
+        </article>
+        <article class="price-card featured ${plan === "plus" ? "current" : ""}">
+          <div class="price-card-top"><span>${C.escapeHtml(premiumText.plusPosition)}</span><em class="plan-badge">${C.escapeHtml(premiumText.badge)}</em></div>
+          <h2>Plus</h2>
+          <strong>CHF 4.90 <small>${C.escapeHtml(premiumText.month)}</small></strong>
+          ${list(premiumText.features.plus)}
+          <button class="primary-button activate-plan" data-plan="plus" type="button" ${plan === "plus" || plan === "pro" ? "disabled" : ""}>${plusButton}</button>
+        </article>
+        <article class="price-card pro ${plan === "pro" ? "current" : ""}">
+          <div class="price-card-top"><span>${C.escapeHtml(premiumText.proPosition)}</span></div>
+          <h2>Pro</h2>
+          <strong>CHF 7.90 <small>${C.escapeHtml(premiumText.month)}</small></strong>
+          ${list(premiumText.features.pro)}
+          <button class="secondary-button activate-plan" data-plan="pro" type="button" ${plan === "pro" ? "disabled" : ""}>${proButton}</button>
+        </article>
+      </section>
+      <section class="panel pro-tools-panel ${isPro() ? "" : "locked"}">
+        <div class="panel-header"><div><span>${C.escapeHtml(premiumText.proKicker)}</span><h2>${C.escapeHtml(premiumText.proTitle)}</h2></div>${isPro() ? C.icon("chart") : C.icon("lock")}</div>
+        <div class="pro-tool-grid">
+          <article><strong>${C.escapeHtml(premiumText.analytics)}</strong><span>${C.escapeHtml(premiumText.analyticsText)}</span></article>
+          <article><strong>${C.escapeHtml(premiumText.exportCards)}</strong><span>${C.escapeHtml(premiumText.exportText)}</span></article>
+          <article><strong>${C.escapeHtml(premiumText.examPrep)}</strong><span>${C.escapeHtml(premiumText.examPrepText)}</span></article>
+        </div>
+      </section>
+    `;
+  };
 
   const render = () => {
     ensureCollections();
@@ -1039,17 +1271,21 @@ const askStudyUpAI = async (message, attachment) => {
       document.querySelector("#event-form")?.addEventListener("submit", (event) => {
         event.preventDefault();
         const data = formData(event.currentTarget);
+        const subject = String(data.subject || "").trim();
+        const title = String(data.title || "").trim();
+        const date = data.date || todayIso();
+        if (!subject || !title || !date) return;
         if (data.kind === "exam") {
-          state.exams.unshift({ id: uid("exam"), subject: data.subject, title: data.title, date: data.date, targetGrade: "", minutesPerDay: 25, topics: [data.title] });
-          if (data.autoPlan === "yes") state.planEvents.unshift(...createExamWeekPlan({ subject: data.subject, title: data.title, date: data.date }));
+          state.exams.unshift({ id: uid("exam"), subject, title, date, targetGrade: "", minutesPerDay: 25, topics: [title] });
+          if (data.autoPlan === "yes") state.planEvents.unshift(...createExamWeekPlan({ subject, title, date }));
         } else if (data.kind === "homework") {
-          state.homework.unshift({ id: uid("hw"), subject: data.subject, title: data.title, description: "", dueDate: data.date, priority: "Mittel", status: "Offen" });
+          state.homework.unshift({ id: uid("hw"), subject, title, description: "", dueDate: date, priority: "Mittel", status: "Offen" });
         } else {
-          state.planEvents.unshift({ id: uid("event"), subject: data.subject, title: data.title, date: data.date, minutes: 25, type: "Termin", auto: false });
+          state.planEvents.unshift({ id: uid("event"), subject, title, date, minutes: 25, type: "Termin", auto: false });
         }
         state.ui.showEventForm = false;
-        event.currentTarget.reset();
-        pushNotification("Eintrag gespeichert", `${data.subject}: ${data.title}`);
+        state.ui.calendarMonthOffset = calendarOffsetForDate(date);
+        pushNotification("Eintrag gespeichert", `${subject}: ${title}`);
         save();
         render();
       });
@@ -1098,6 +1334,7 @@ document.querySelector("#toggle-card-create")?.addEventListener("click", () => {
 });
 
 document.querySelectorAll(".choose-card-mode").forEach((button) => button.addEventListener("click", () => {
+  if (button.dataset.mode === "ai" && !isPlus()) return;
   state.ui.cardCreateMode = button.dataset.mode;
   save();
   render();
@@ -1110,6 +1347,10 @@ document.querySelectorAll(".choose-card-mode").forEach((button) => button.addEve
       }));
       document.querySelector("#card-form")?.addEventListener("submit", (event) => {
         event.preventDefault();
+        if (!isPlus() && personalCards().length >= 50) {
+          pushNotification("Free-Limit erreicht", "Free enthält 50 persönliche Karten. Plus und Pro heben dieses Limit auf.");
+          return;
+        }
         const data = formData(event.currentTarget);
         state.flashcards.unshift({
           id: uid("card"),
@@ -1159,6 +1400,10 @@ document.querySelectorAll(".choose-card-mode").forEach((button) => button.addEve
         render();
       });
       document.querySelector("#photo-card-input")?.addEventListener("change", (event) => {
+        if (!isPlus()) {
+          pushNotification("AI-Karten sind Plus und Pro", "Aktiviere Plus oder Pro, um Karten aus Fotos zu erstellen.");
+          return;
+        }
         const file = event.currentTarget.files?.[0];
         if (!file) return;
         const subject = document.querySelector("#photo-card-subject")?.value.trim() || "AI Cards";
@@ -1199,7 +1444,7 @@ if (route === "bot") {
     if (!message && !attachment) return;
 
     if (state.settings.aiQuestionsUsed >= currentAiLimit()) {
-      state.chat.push({ id: uid("msg"), role: "bot", text: `${state.settings.premiumActive ? "Plus" : "Basis"}-Limit erreicht: ${aiLimitLabel()} sind genutzt.` });
+      state.chat.push({ id: uid("msg"), role: "bot", text: `${planLabel()}-Limit erreicht: ${aiLimitLabel()} sind diesen Monat genutzt.` });
     } else {
       state.chat.push({ id: uid("msg"), role: "user", text: `${message || "Foto-Frage"}${attachment ? ` [Foto: ${attachment}]` : ""}` });
 
@@ -1221,13 +1466,18 @@ if (route === "bot") {
   });
 }
     if (route === "premium") {
-      document.querySelector(".activate-plus")?.addEventListener("click", () => {
+      document.querySelectorAll(".activate-plan").forEach((button) => button.addEventListener("click", () => {
+        const plan = button.dataset.plan === "pro" ? "pro" : "plus";
+        state.settings.plan = plan;
         state.settings.premiumActive = true;
+        state.settings.planName = planLabel(plan);
+        state.settings.aiLimit = aiLimitForPlan(plan);
         save();
         render();
-      });
+      }));
       document.querySelectorAll(".setting-control").forEach((control) => control.addEventListener("change", () => {
-        if (!state.settings.premiumActive) return;
+        const minPlan = control.dataset.minPlan || "plus";
+        if (minPlan === "pro" ? !isPro() : !isPlus()) return;
         state.settings[control.name] = control.value;
         save();
         render();
@@ -1235,36 +1485,60 @@ if (route === "bot") {
     }
   };
 
+  document.querySelectorAll(".account-setting").forEach((control) => control.addEventListener("change", () => {
+    ensureCollections();
+    const minPlan = control.dataset.minPlan || "free";
+    if (minPlan === "pro" ? !isPro() : minPlan === "plus" ? !isPlus() : false) return;
+    state.settings[control.name] = control.value;
+    save();
+    applyTheme();
+  }));
+
   themeToggle?.addEventListener("click", () => {
     ensureCollections();
     state.settings.theme = state.settings.theme === "dark" ? "light" : "dark";
     save();
     render();
   });
-  notificationButton?.addEventListener("click", requestNotifications);
-  logoutButton?.addEventListener("click", () => {
-  state.user = {
-    ...state.user,
-    loggedIn: false
+  const logoutUser = () => {
+    state.user = {
+      ...state.user,
+      loggedIn: false
+    };
+    state.ui = {
+      ...state.ui,
+      selectedGradeSubject: null,
+      selectedPartialGroup: null,
+      showSubjectForm: false,
+      showGradeEntryForm: false,
+      showTargetGradeForm: false,
+      showPartialEntryForm: false,
+      showEventForm: false,
+      cardCreateOpen: false,
+      cardStudyOpen: false
+    };
+    accountPanel?.classList.remove("open");
+    accountButton?.setAttribute("aria-expanded", "false");
+    location.hash = "#dashboard";
+    save();
+    render();
   };
-
-  state.ui = {
-    ...state.ui,
-    selectedGradeSubject: null,
-    selectedPartialGroup: null,
-    showSubjectForm: false,
-    showGradeEntryForm: false,
-    showTargetGradeForm: false,
-    showPartialEntryForm: false,
-    showEventForm: false,
-    cardCreateOpen: false,
-    cardStudyOpen: false
-  };
-
-  location.hash = "#dashboard";
-  save();
-  render();
-});
+  accountButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = !accountPanel?.classList.contains("open");
+    accountPanel?.classList.toggle("open", open);
+    accountButton.setAttribute("aria-expanded", String(open));
+  });
+  accountLogout?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    logoutUser();
+  });
+  document.addEventListener("click", (event) => {
+    if (!accountPanel?.classList.contains("open")) return;
+    if (event.target.closest(".account-menu")) return;
+    accountPanel.classList.remove("open");
+    accountButton?.setAttribute("aria-expanded", "false");
+  });
 
   ensureCollections();
   applyTheme();
