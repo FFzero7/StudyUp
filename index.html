@@ -1,10 +1,9 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="de">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>StudyUp</title>
-    <link rel="icon" type="image/png" href="src/assets/studyup-logo.png" />
     <link rel="stylesheet" href="src/styles.css" />
   </head>
   <body>
@@ -12,71 +11,29 @@
       <header class="topbar">
         <a class="brand" href="#dashboard" aria-label="StudyUp Startseite">
           <span class="logo" aria-hidden="true">
-            <img src="src/assets/studyup-logo.png" alt="" />
+            <svg viewBox="0 0 48 48" role="img">
+              <path d="M8 12.5c5.7-.9 10.6.2 14 3.1v21.1c-3.4-2.9-8.3-4-14-3.1V12.5Z" />
+              <path d="M40 12.5c-5.7-.9-10.6.2-14 3.1v21.1c3.4-2.9 8.3-4 14-3.1V12.5Z" />
+              <path d="M24 10v28" />
+              <path d="M31 20.5 36 15l5 5.5" />
+              <path d="M36 15v12" />
+            </svg>
           </span>
           <span><strong>StudyUp</strong><small>StudyUp.com</small></span>
         </a>
         <div class="top-actions">
-          <button id="theme-toggle" class="top-icon-button" type="button" title="Hell- und Dunkelmodus wechseln">
-            <span id="theme-icon" aria-hidden="true">&#9790;</span>
+          <a href="#premium" class="top-icon-button top-link-button" title="Plus ansehen">
+            <span aria-hidden="true">&#9733;</span><span>Plus</span>
+          </a>
+          <button id="notification-button" class="top-icon-button" type="button" title="Mitteilungen aktivieren">
+            <span aria-hidden="true">!</span><span>Mitteilungen</span>
           </button>
-          <div class="account-menu">
-            <button id="account-button" class="account-button" type="button" aria-expanded="false" aria-label="Account öffnen">
-              <span id="account-avatar" aria-hidden="true">SU</span>
-            </button>
-            <section id="account-panel" class="account-panel" aria-label="Accountdetails">
-              <strong id="account-name">StudyUp</strong>
-              <span id="account-email">Lokaler Account</span>
-              <div class="account-detail-row"><small>Plan</small><b id="account-plan">Free</b></div>
-              <div class="account-detail-row"><small>Region</small><b id="account-region">Schweiz</b></div>
-              <details class="account-design">
-                <summary>Design anpassen</summary>
-                <div class="account-design-grid">
-                  <label>Theme<select name="theme" class="account-setting">
-                    <option value="light">Hell</option>
-                    <option value="dark">Dunkel</option>
-                  </select></label>
-                  <label>Akzent<select name="accent" class="account-setting" data-min-plan="plus">
-                    <option value="blue">Blau</option>
-                    <option value="green">Grün</option>
-                    <option value="violet">Violett</option>
-                    <option value="coral">Koralle</option>
-                    <option value="teal">Türkis</option>
-                    <option value="rose">Rosa</option>
-                    <option value="amber">Gold</option>
-                    <option value="slate">Graphit</option>
-                  </select></label>
-                  <label>Kartenstil<select name="cardStyle" class="account-setting" data-min-plan="plus">
-                    <option value="stacked">Gestapelt</option>
-                    <option value="clean">Clean</option>
-                    <option value="bold">Bold</option>
-                  </select></label>
-                  <label>Dichte<select name="density" class="account-setting" data-min-plan="plus">
-                    <option value="comfortable">Normal</option>
-                    <option value="compact">Kompakt</option>
-                    <option value="spacious">Großzügig</option>
-                  </select></label>
-                  <label>Rundung<select name="radius" class="account-setting" data-min-plan="plus">
-                    <option value="soft">Weich</option>
-                    <option value="sharp">Klar</option>
-                    <option value="round">Rund</option>
-                  </select></label>
-                  <label>Oberfläche<select name="surface" class="account-setting" data-min-plan="plus">
-                    <option value="clean">Clean</option>
-                    <option value="glass">Glas</option>
-                    <option value="contrast">Kontrast</option>
-                  </select></label>
-                  <label>Pro-Stil<select name="proStyle" class="account-setting" data-min-plan="pro">
-                    <option value="focus">Focus</option>
-                    <option value="exam">Exam Mode</option>
-                    <option value="elite">Elite</option>
-                  </select></label>
-                </div>
-                <p id="account-design-note" class="account-design-note">Plus und Pro schalten alle Design-Optionen frei.</p>
-              </details>
-              <button id="account-logout" class="account-logout" type="button">Ausloggen</button>
-            </section>
-          </div>
+          <button id="theme-toggle" class="top-icon-button" type="button" title="Hell- und Dunkelmodus wechseln">
+            <span id="theme-icon" aria-hidden="true">&#9790;</span><span id="theme-label">Dunkel</span>
+          </button>
+          <button id="settings-button" class="top-icon-button" type="button" title="Profil und Daten">
+            <span aria-hidden="true">&#9881;</span><span>Profil</span>
+          </button>
         </div>
       </header>
       <main id="app" class="main-content" aria-live="polite"></main>
@@ -84,9 +41,8 @@
         <a href="#dashboard" data-route="dashboard" title="Start"><span class="nav-icon" aria-hidden="true">&#8962;</span><span>Start</span></a>
         <a href="#grades" data-route="grades" title="Noten"><span class="nav-icon" aria-hidden="true">%</span><span>Noten</span></a>
         <a href="#planner" data-route="planner" title="Lernplan"><span class="nav-icon" aria-hidden="true">&#9719;</span><span>Plan</span></a>
-        <a href="#cards" data-route="cards" title="Cards"><span class="nav-icon" aria-hidden="true">&#9636;</span><span>Cards</span></a>
-        <a href="#bot" data-route="bot" title="StudyUp AI"><span class="nav-icon text-icon" aria-hidden="true">AI</span><span>AI</span></a>
-        <a href="#premium" data-route="premium" title="Premium"><span class="nav-icon" aria-hidden="true">&#9733;</span><span>Plus</span></a>
+        <a href="#cards" data-route="cards" title="Karteikarten"><span class="nav-icon" aria-hidden="true">&#9636;</span><span>Karten</span></a>
+        <a href="#bot" data-route="bot" title="StudyUp KI"><span class="nav-icon text-icon" aria-hidden="true">KI</span><span>KI</span></a>
       </nav>
     </div>
     <script src="src/data.js" defer></script>
@@ -95,3 +51,4 @@
     <script src="src/app.js" defer></script>
   </body>
 </html>
+
