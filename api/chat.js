@@ -1,37 +1,37 @@
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5-mini";
+﻿const fallbackAnswer = (message = "") => {
+  const raw = String(message).trim();
+  const lower = raw.toLowerCase();
+  if (!raw) return "Schreib mir deine Aufgabe, dann helfe ich dir Schritt für Schritt.";
 
-function getResponseText(data) {
-  if (data.output_text) return data.output_text;
-
-  const textParts = [];
-
-  for (const item of data.output || []) {
-    for (const content of item.content || []) {
-      if (content.type === "output_text" && content.text) {
-        textParts.push(content.text);
-      }
-    }
+  if (["translate", "uebersetze", "übersetze", "was heisst", "was heißt"].some((word) => lower.includes(word))) {
+    return "Bei einer Übersetzung gebe ich dir die Bedeutung direkt und danach ein kurzes Beispiel. Schreib am besten das genaue Wort oder den ganzen Satz.";
   }
 
-  return textParts.join("\n").trim();
-}
+  if (/[0-9]\s*[\+\-\*x:\/]\s*[0-9]|\([^)]*[\+\-\*x:\/][^)]*\)/.test(lower)) {
+    const bracket = raw.match(/\(([^()]+)\)/);
+    if (bracket) {
+      return `Ich würde zuerst die Klammer anschauen: ${bracket[1]}. Rechne diesen Zwischenschritt aus und setze das Ergebnis danach wieder in die Aufgabe ein.`;
+    }
+    return "Bei Mathe starten wir mit der Reihenfolge: Klammern, dann Punktrechnung, dann Strichrechnung. Markiere zuerst den Teil, der nach dieser Regel dran ist.";
+  }
 
-module.exports = async function handler(req, res) {
+  return `Lass uns das als Lerncoach zerlegen: 1. Was ist gegeben? 2. Was wird gesucht? 3. Welcher erste Schritt passt? Zu deiner Frage "${raw}" würde ich zuerst die wichtigsten Begriffe klären und dann ein kleines Beispiel machen.`;
+};
+
+module.exports = async (req, res) => {
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  const message = req.body?.message || req.body?.attachmentName || "";
+
+  if (!process.env.OPENAI_API_KEY) {
+    res.status(200).json({ answer: fallbackAnswer(message), offline: true });
+    return;
   }
 
   try {
-    const { message } = req.body || {};
-
-    if (!message) {
-      return res.status(400).json({ error: "Message is required" });
-    }
-
-    if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ error: "OPENAI_API_KEY is missing" });
-    }
-
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
@@ -39,36 +39,24 @@ module.exports = async function handler(req, res) {
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: OPENAI_MODEL,
-        input: [
-          {
-            role: "system",
-            content:
-              "You are StudyUp AI, a friendly homework helper. Explain step by step and do not just give final answers. You may answer normal math questions, but guide the student through the first steps, ask short checking questions when useful, and then explain the result clearly."
-          },
-          {
-            role: "user",
-            content: message
-          }
-        ],
-        max_output_tokens: 500
+        model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+        instructions: "Du bist StudyUp KI, ein Lerncoach für Schüler. Erkläre Schritt für Schritt, stelle Rückfragen und gib Hinweise. Gib bei Mathe keine reine Endantwort ohne Erklärung.",
+        input: message
       })
     });
 
     const data = await response.json();
-
     if (!response.ok) {
-      return res.status(response.status).json({
-        error: data.error?.message || "OpenAI API error"
-      });
+      res.status(response.status).json({ error: data.error?.message || "KI-Anfrage fehlgeschlagen" });
+      return;
     }
 
-    const answer = getResponseText(data);
-
-    return res.status(200).json({
-      answer: answer || "The AI answered, but I could not read the response text."
-    });
-  } catch (err) {
-    return res.status(500).json({ error: err.message || "Server error" });
+    res.status(200).json({ answer: data.output_text || fallbackAnswer(message), offline: false });
+  } catch (error) {
+    res.status(200).json({ answer: fallbackAnswer(message), offline: true, warning: error.message });
   }
 };
+
+
+
+
