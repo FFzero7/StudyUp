@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
   const escapeHtml = (value) =>
     String(value ?? "")
       .replaceAll("&", "&amp;")
@@ -57,3 +57,4 @@
 
   window.StudyUpComponents = { escapeHtml, icon, sectionTitle, statCard, emptyState, priorityClass, difficultyLabel, difficultyClass };
 })();
+

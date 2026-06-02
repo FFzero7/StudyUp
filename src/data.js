@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
   window.StudyUpSeed = {
     user: {
       loggedIn: false,
@@ -12,17 +12,13 @@
       premiumActive: false,
       aiLimit: 10,
       aiQuestionsUsed: 0,
-      aiQuestionsDate: "",
+      aiQuestionsMonth: "",
       theme: "light",
       accent: "blue",
       gradeSystem: "ch",
       language: "de-CH",
       dashboardStyle: "compact",
-      cardStyle: "stacked",
-      proStyle: "focus",
-      density: "comfortable",
-      radius: "soft",
-      surface: "clean"
+      cardStyle: "stacked"
     },
     gradeSystems: [
       { id: "ch", name: "Schweiz", language: "de-CH", label: "Noten 1-6", min: 1, max: 6, step: 0.01, pass: 4, higherIsBetter: true, example: "5.75" },
@@ -51,8 +47,15 @@
     exams: [],
     goals: [],
     planEvents: [],
+    studyTasks: [],
+    mistakes: [],
     flashcards: [],
-    cardReviewStatus: {},
+    cardSchedule: {},
+    streak: {
+      current: 0,
+      weeklySessions: 0,
+      lastStudyDate: ""
+    },
     cardLibrary: [
       {
         id: "fr-unit-1",
@@ -101,20 +104,21 @@
       showPartialEntryForm: false,
       showEventForm: false,
       showExamForm: false,
-      calendarMonthOffset: 0,
-      editingGradeId: "",
-      editingPartialGradeId: "",
+      showMistakeForm: false,
+      plannerMonthOffset: 0,
       cardSearch: "",
       cardCreateOpen: false,
       cardCreateMode: "",
       cardStudyOpen: false,
-      cardStudyPackId: "",
+      cardStudyMode: "",
       cardStudyIndex: 0,
-      cardStudyMode: "pack",
-      cardStudyBucket: "",
-      cardStudySource: "",
+      studySessionStep: 0,
+      studySessionCardIndex: 0,
+      mistakeFilter: "open",
+      aiOfflineMode: true,
       lastPhotoName: "",
       chatAttachmentName: ""
     }
   };
 })();
+

@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
   const key = "studyup-state-v6";
   const copy = (value) => JSON.parse(JSON.stringify(value));
 
@@ -38,3 +38,4 @@
   const save = (state) => localStorage.setItem(key, JSON.stringify(state));
   window.StudyUpStorage = { load, save };
 })();
+

@@ -1,32 +1,20 @@
-(function () {
+﻿(function () {
   const app = document.querySelector("#app");
   const navLinks = document.querySelectorAll("[data-route]");
   const themeToggle = document.querySelector("#theme-toggle");
   const themeIcon = document.querySelector("#theme-icon");
-  const accountButton = document.querySelector("#account-button");
-  const accountPanel = document.querySelector("#account-panel");
-  const accountAvatar = document.querySelector("#account-avatar");
-  const accountName = document.querySelector("#account-name");
-  const accountEmail = document.querySelector("#account-email");
-  const accountPlan = document.querySelector("#account-plan");
-  const accountRegion = document.querySelector("#account-region");
-  const accountLogout = document.querySelector("#account-logout");
-  const accountDesignNote = document.querySelector("#account-design-note");
+  const themeLabel = document.querySelector("#theme-label");
+  const notificationButton = document.querySelector("#notification-button");
+  const settingsButton = document.querySelector("#settings-button");
+  const logoutButton = document.querySelector("#logout-button");
   const C = window.StudyUpComponents;
   let state = window.StudyUpStorage.load();
+  let cardSearchTimer = null;
 
-  const routes = ["dashboard", "grades", "planner", "cards", "bot", "premium"];
-  const accentColors = {
-    blue: "#2563eb",
-    green: "#10b981",
-    violet: "#7c3aed",
-    coral: "#f97316",
-    teal: "#14b8a6",
-    rose: "#e11d48",
-    amber: "#f59e0b",
-    slate: "#475569"
-  };
-  const planSteps = ["Wiederholen", "Üben", "Cards", "Mini-Test", "Fehleranalyse", "Prüfungssimulation"];
+  const routes = ["dashboard", "grades", "planner", "cards", "mistakes", "session", "bot", "premium", "settings"];
+  const accentColors = { blue: "#2563eb", green: "#10b981", violet: "#7c3aed", coral: "#f97316" };
+  const subjectChoices = ["Mathe", "Deutsch", "Französisch", "Geschichte", "BG", "Musik", "Biologie", "Geographie", "Latein", "Englisch"];
+  const planSteps = ["Wiederholen", "Üben", "Karteikarten", "Mini-Test", "Fehleranalyse", "Prüfungssimulation"];
 
   const uid = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const copy = (value) => JSON.parse(JSON.stringify(value));
@@ -34,21 +22,9 @@
   const toIso = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
   const todayIso = () => toIso(new Date());
   const dateObject = (iso) => new Date(`${iso}T12:00:00`);
+  const monthKey = () => todayIso().slice(0, 7);
   const save = () => window.StudyUpStorage.save(state);
   const formData = (form) => Object.fromEntries(new FormData(form).entries());
-  const planNames = { free: "Free", plus: "Plus", pro: "Pro" };
-  const planLimits = { free: 10, plus: 300, pro: 1000 };
-  const currentMonthKey = () => todayIso().slice(0, 7);
-  const currentPlan = () => {
-    const plan = String(state.settings?.plan || "").toLowerCase();
-    if (plan === "pro") return "pro";
-    if (plan === "plus") return "plus";
-    return state.settings?.premiumActive ? "plus" : "free";
-  };
-  const isPlus = () => ["plus", "pro"].includes(currentPlan());
-  const isPro = () => currentPlan() === "pro";
-  const aiLimitForPlan = (plan = currentPlan()) => planLimits[plan] || planLimits.free;
-  const planLabel = (plan = currentPlan()) => planNames[plan] || planNames.free;
   const normalizePartialGrade = (grade) => ({
     id: grade.id || uid("part"),
     title: grade.title || "Teilprüfung",
@@ -73,25 +49,34 @@
       value: Number(grade.value || 0)
     };
   };
+  const normalizeMistake = (mistake) => ({
+    id: mistake.id || uid("mistake"),
+    subject: mistake.subject || "Allgemein",
+    topic: mistake.topic || "",
+    question: mistake.question || "Unklare Aufgabe",
+    correctAnswer: mistake.correctAnswer || "",
+    userAnswer: mistake.userAnswer || "",
+    explanation: mistake.explanation || "",
+    createdDate: mistake.createdDate || todayIso(),
+    reviewStatus: mistake.reviewStatus || "open",
+    source: mistake.source || "manuell"
+  });
+  const aiLimitForPlan = (plan) => ({ free: 10, plus: 300, pro: 1000 })[plan] || 10;
+  const planLabel = (plan) => ({ free: "Free", plus: "Plus", pro: "Pro" })[plan] || "Free";
 
   const ensureCollections = () => {
     state.user = { ...window.StudyUpSeed.user, ...(state.user || {}) };
     state.settings = { ...window.StudyUpSeed.settings, ...(state.settings || {}) };
-    state.settings.plan = currentPlan();
-    state.settings.premiumActive = state.settings.plan !== "free";
+    if (!["free", "plus", "pro"].includes(state.settings.plan)) {
+      state.settings.plan = state.settings.premiumActive ? "plus" : "free";
+    }
+    if (state.settings.premiumActive && state.settings.plan !== "pro") state.settings.plan = "plus";
+    state.settings.premiumActive = state.settings.plan === "plus" || state.settings.plan === "pro";
     state.settings.planName = planLabel(state.settings.plan);
     state.settings.aiLimit = aiLimitForPlan(state.settings.plan);
-    state.settings.density = state.settings.density || "comfortable";
-    state.settings.radius = state.settings.radius || "soft";
-    state.settings.surface = state.settings.surface || "clean";
-    state.settings.cardStyle = state.settings.cardStyle || "stacked";
-    state.settings.proStyle = state.settings.proStyle || "focus";
-    const questionPeriod = String(state.settings.aiQuestionsDate || "");
-    if (!questionPeriod.startsWith(currentMonthKey())) {
-      state.settings.aiQuestionsDate = currentMonthKey();
+    if (state.settings.aiQuestionsMonth !== monthKey()) {
+      state.settings.aiQuestionsMonth = monthKey();
       state.settings.aiQuestionsUsed = 0;
-    } else {
-      state.settings.aiQuestionsDate = currentMonthKey();
     }
     state.gradeSystems = state.gradeSystems?.length ? state.gradeSystems : copy(window.StudyUpSeed.gradeSystems);
     state.gradeSystems = state.gradeSystems.map((system) => (
@@ -109,26 +94,28 @@
     }));
     state.exams = state.exams || [];
     state.planEvents = state.planEvents || [];
+    state.studyTasks = state.studyTasks || [];
+    state.mistakes = (state.mistakes || []).map(normalizeMistake);
     state.flashcards = (state.flashcards || []).map((card) => ({ source: "private", reviewCount: 0, published: false, title: card.subject, ...card }));
-    state.cardReviewStatus = state.cardReviewStatus || {};
-    Object.keys(state.cardReviewStatus).forEach((cardId) => {
-      if (state.cardReviewStatus[cardId] === "ok") delete state.cardReviewStatus[cardId];
-    });
+    state.cardSchedule = state.cardSchedule || {};
+    state.streak = { current: 0, weeklySessions: 0, lastStudyDate: "", ...(state.streak || {}) };
     state.cardLibrary = state.cardLibrary?.length ? state.cardLibrary : copy(window.StudyUpSeed.cardLibrary);
-    state.chat = state.chat || [];
+    state.chat = (state.chat || []).map((message) => (
+      message.role === "bot" && (String(message.text || "").includes("Unexpected token") || String(message.text || "").includes("Not found"))
+        ? { ...message, text: "Diese alte KI-Antwort kam aus einer nicht verbundenen API. Stelle die Frage einfach noch einmal." }
+        : message
+    ));
     state.ui = { ...window.StudyUpSeed.ui, ...(state.ui || {}) };
     state.ui.selectedPartialGroup = state.ui.selectedPartialGroup || null;
+    state.ui.plannerMonthOffset = Number(state.ui.plannerMonthOffset || 0);
+    state.ui.cardStudyIndex = Number(state.ui.cardStudyIndex || 0);
+    state.ui.studySessionStep = Number(state.ui.studySessionStep || 0);
+    state.ui.studySessionCardIndex = Number(state.ui.studySessionCardIndex || 0);
+    state.ui.mistakeFilter = state.ui.mistakeFilter || "open";
+    state.ui.aiOfflineMode = state.ui.aiOfflineMode !== false;
+    state.ui.showMistakeForm = Boolean(state.ui.showMistakeForm);
     state.ui.showTargetGradeForm = Boolean(state.ui.showTargetGradeForm);
     state.ui.showPartialEntryForm = Boolean(state.ui.showPartialEntryForm);
-    state.ui.calendarMonthOffset = Number.isFinite(Number(state.ui.calendarMonthOffset)) ? Number(state.ui.calendarMonthOffset) : 0;
-    state.ui.editingGradeId = state.ui.editingGradeId || "";
-    state.ui.editingPartialGradeId = state.ui.editingPartialGradeId || "";
-    state.ui.cardStudyOpen = Boolean(state.ui.cardStudyOpen);
-    state.ui.cardStudyPackId = state.ui.cardStudyPackId || "";
-    state.ui.cardStudyIndex = Number.isFinite(Number(state.ui.cardStudyIndex)) ? Number(state.ui.cardStudyIndex) : 0;
-    state.ui.cardStudyMode = state.ui.cardStudyMode || "pack";
-    state.ui.cardStudyBucket = state.ui.cardStudyBucket || "";
-    state.ui.cardStudySource = state.ui.cardStudySource || "";
     if (!state.ui.cleanedHundredthsTest) {
       state.subjects.forEach((subject) => {
         subject.grades = subject.grades.filter((grade) => grade.title !== "Hundertstel-Test");
@@ -137,6 +124,9 @@
     }
   };
 
+  const currentPlan = () => state.settings.plan || (state.settings.premiumActive ? "plus" : "free");
+  const isPlus = () => currentPlan() === "plus" || currentPlan() === "pro";
+  const isPro = () => currentPlan() === "pro";
   const currentSystem = () => state.gradeSystems.find((system) => system.id === state.settings.gradeSystem) || state.gradeSystems[0];
   const formatDate = (date, options = { day: "2-digit", month: "short" }) => new Intl.DateTimeFormat(state.settings.language || currentSystem().language, options).format(dateObject(date));
   const gradeValue = (grade) => {
@@ -188,132 +178,49 @@
     const clean = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
     return `${rounded > 0 ? "+" : ""}${clean} P`;
   };
-  const currentAiLimit = () => aiLimitForPlan();
-  const aiLimitLabel = () => `${currentAiLimit()} AI-Fragen pro Monat`;
   const topicList = (topics) => Array.isArray(topics) ? topics : String(topics || "").split(",").map((topic) => topic.trim()).filter(Boolean);
-  const cardText = () => {
-    const lang = String(state.settings.language || "en-US").slice(0, 2);
-    const labels = {
-      de: {
-        section: "Karten",
-        create: "Karten erstellen",
-        personal: "Persönliche Karten",
-        search: "Karten-Datenbank durchsuchen",
-        recommended: "Empfohlen",
-        learn: "Lernen",
-        open: "Öffnen",
-        good: "Gut",
-        bad: "Schlecht",
-        back: "Zurück",
-        previous: "Vorherige Karte",
-        next: "Nächste Karte",
-        empty: "Keine Karten",
-        emptyText: "Dieser Stapel enthält noch keine Karten."
-      },
-      en: {
-        section: "Cards",
-        create: "Create cards",
-        personal: "Personal cards",
-        search: "Search cards database",
-        recommended: "Recommended",
-        learn: "Study",
-        open: "Open",
-        good: "Good",
-        bad: "Bad",
-        back: "Back",
-        previous: "Previous card",
-        next: "Next card",
-        empty: "No cards",
-        emptyText: "This deck has no cards yet."
-      },
-      fr: {
-        section: "Cartes",
-        create: "Créer des cartes",
-        personal: "Cartes personnelles",
-        search: "Rechercher des cartes",
-        recommended: "Recommandé",
-        learn: "Apprendre",
-        open: "Ouvrir",
-        good: "Bien",
-        bad: "Difficile",
-        back: "Retour",
-        previous: "Carte précédente",
-        next: "Carte suivante",
-        empty: "Aucune carte",
-        emptyText: "Ce paquet ne contient pas encore de cartes."
-      },
-      it: {
-        section: "Carte",
-        create: "Crea carte",
-        personal: "Carte personali",
-        search: "Cerca carte",
-        recommended: "Consigliate",
-        learn: "Studia",
-        open: "Apri",
-        good: "Bene",
-        bad: "Difficile",
-        back: "Indietro",
-        previous: "Carta precedente",
-        next: "Carta successiva",
-        empty: "Nessuna carta",
-        emptyText: "Questo mazzo non contiene ancora carte."
-      },
-      es: {
-        section: "Tarjetas",
-        create: "Crear tarjetas",
-        personal: "Tarjetas personales",
-        search: "Buscar tarjetas",
-        recommended: "Recomendado",
-        learn: "Estudiar",
-        open: "Abrir",
-        good: "Bien",
-        bad: "Difícil",
-        back: "Atrás",
-        previous: "Tarjeta anterior",
-        next: "Tarjeta siguiente",
-        empty: "Sin tarjetas",
-        emptyText: "Este mazo todavía no tiene tarjetas."
-      }
-    };
-    return labels[lang] || labels.en;
+
+  const applyDemoData = () => {
+    state.user = { loggedIn: true, name: state.user.name || "Demo-Schüler", email: state.user.email || "", region: state.user.region || "ch" };
+    state.settings.gradeSystem = state.settings.gradeSystem || "ch";
+    state.settings.language = state.settings.language || "de-CH";
+    state.subjects = [
+      { id: uid("sub"), name: "Mathe", weight: 1, targetGrade: "5.0", grades: [{ id: uid("grade"), type: "exam", title: "Algebra-Test", date: addDays(todayIso(), -8), value: 4.5 }, { id: uid("grade"), type: "exam", title: "Geometrie-Quiz", date: addDays(todayIso(), -2), value: 5.0 }] },
+      { id: uid("sub"), name: "Französisch", weight: 1, targetGrade: "5.0", grades: [{ id: uid("grade"), type: "exam", title: "Unit 1 Vokabeln", date: addDays(todayIso(), -5), value: 4.0 }] },
+      { id: uid("sub"), name: "Biologie", weight: 1, targetGrade: "", grades: [{ id: uid("grade"), type: "exam", title: "Zellen", date: addDays(todayIso(), -3), value: 5.5 }] }
+    ];
+    state.exams = [{ id: uid("exam"), subject: "Mathe", title: "Lineare Funktionen", date: addDays(todayIso(), 6), targetGrade: "5.0", minutesPerDay: 25, topics: ["Steigung", "y-Achsenabschnitt"] }];
+    state.homework = [{ id: uid("hw"), subject: "Französisch", title: "Vokabeln Unit 1", description: "10 Wörter wiederholen", dueDate: addDays(todayIso(), 2), priority: "Mittel", status: "Offen" }];
+    state.planEvents = [{ id: uid("event"), subject: "Mathe", title: "15 Minuten Gleichungen üben", date: todayIso(), minutes: 15, type: "Üben", auto: false }];
+    state.flashcards = [
+      { id: uid("card"), subject: "Französisch", title: "Unit 1", question: "bonjour", answer: "hallo / guten Tag", difficulty: 2, reviewCount: 0, source: "private", published: false },
+      { id: uid("card"), subject: "Französisch", title: "Unit 1", question: "la famille", answer: "die Familie", difficulty: 1, reviewCount: 0, source: "private", published: false },
+      { id: uid("card"), subject: "Biologie", title: "Zellen", question: "Zellkern", answer: "Steuert die Zelle und enthält DNA.", difficulty: 2, reviewCount: 0, source: "private", published: false }
+    ];
+    state.mistakes = [
+      normalizeMistake({ subject: "Mathe", topic: "Klammern", question: "2*(3+4)", userAnswer: "10", correctAnswer: "14", explanation: "Zuerst die Klammer rechnen: 3+4=7, danach 2*7=14.", source: "Demo" }),
+      normalizeMistake({ subject: "Französisch", topic: "Vokabeln", question: "au revoir", userAnswer: "Hallo", correctAnswer: "auf Wiedersehen", explanation: "Bonjour ist hallo, au revoir ist auf Wiedersehen.", source: "Demo" })
+    ];
+    state.studyTasks = [{ id: uid("task"), subject: "Mathe", title: "Klammerregel wiederholen", date: todayIso(), done: false }];
+    state.cardSchedule = {};
+    state.streak = { current: 1, weeklySessions: 1, lastStudyDate: todayIso() };
+    state.ui.showMistakeForm = false;
+    state.ui.cardCreateOpen = false;
+    state.ui.studySessionStep = 0;
+    state.ui.studySessionCardIndex = 0;
   };
 
   const applyTheme = () => {
     const system = currentSystem();
     document.title = "StudyUp.com";
     document.documentElement.dataset.theme = state.settings.theme;
-    document.documentElement.dataset.density = state.settings.density || "comfortable";
-    document.documentElement.dataset.radius = state.settings.radius || "soft";
-    document.documentElement.dataset.surface = state.settings.surface || "clean";
-    document.documentElement.dataset.cardStyle = state.settings.cardStyle || "stacked";
-    document.documentElement.dataset.proStyle = state.settings.proStyle || "focus";
     document.documentElement.lang = state.settings.language || system.language;
     document.body.classList.toggle("is-locked", !state.user.loggedIn);
     const accent = accentColors[state.settings.accent] || accentColors.blue;
     document.documentElement.style.setProperty("--accent", accent);
     document.documentElement.style.setProperty("--accent-soft", `${accent}1A`);
     if (themeIcon) themeIcon.innerHTML = state.settings.theme === "dark" ? "&#9728;" : "&#9790;";
-    if (themeToggle) themeToggle.title = state.settings.theme === "dark" ? "Hellmodus aktivieren" : "Dunkelmodus aktivieren";
-    const initials = String(state.user.name || "StudyUp").trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "SU";
-    if (accountAvatar) accountAvatar.textContent = initials;
-    if (accountName) accountName.textContent = state.user.name || "StudyUp";
-    if (accountEmail) accountEmail.textContent = state.user.email || "Lokaler Account";
-    if (accountPlan) accountPlan.textContent = planLabel();
-    if (accountRegion) accountRegion.textContent = currentSystem()?.name || state.user.region || "Schweiz";
-    document.querySelectorAll(".account-setting").forEach((control) => {
-      control.value = state.settings[control.name] || control.value;
-      const minPlan = control.dataset.minPlan || "free";
-      control.disabled = minPlan === "pro" ? !isPro() : minPlan === "plus" ? !isPlus() : false;
-    });
-    if (accountDesignNote) {
-      accountDesignNote.textContent = isPlus()
-        ? "Deine Änderungen werden direkt gespeichert."
-        : "Plus und Pro schalten Farben, Kartenstil und Oberflächen frei.";
-    }
-    const cardsNavLabel = document.querySelector('[data-route="cards"] span:last-child');
-    const cardsNavLink = document.querySelector('[data-route="cards"]');
-    if (cardsNavLabel) cardsNavLabel.textContent = cardText().section;
-    if (cardsNavLink) cardsNavLink.title = cardText().section;
+    if (themeLabel) themeLabel.textContent = state.settings.theme === "dark" ? "Hell" : "Dunkel";
   };
 
   const getRoute = () => {
@@ -322,7 +229,10 @@
     return routes.includes(route) ? route : "dashboard";
   };
 
-  const setActiveNav = (route) => navLinks.forEach((link) => link.classList.toggle("active", link.dataset.route === route));
+  const setActiveNav = (route) => {
+    const visibleRoute = { mistakes: "dashboard", session: "dashboard", premium: "dashboard", settings: "dashboard" }[route] || route;
+    navLinks.forEach((link) => link.classList.toggle("active", link.dataset.route === visibleRoute));
+  };
 
   const pushNotification = async (title, text, ask = false) => {
     state.notifications.unshift({ id: uid("note"), title, text, date: todayIso(), read: false });
@@ -346,16 +256,17 @@
       <section class="onboarding-screen">
         <div class="onboarding-logo">
           <span class="logo" aria-hidden="true">
-            <img src="src/assets/studyup-logo.png" alt="" />
+            <svg viewBox="0 0 48 48"><path d="M8 12.5c5.7-.9 10.6.2 14 3.1v21.1c-3.4-2.9-8.3-4-14-3.1V12.5Z" /><path d="M40 12.5c-5.7-.9-10.6.2-14 3.1v21.1c3.4-2.9 8.3-4 14-3.1V12.5Z" /><path d="M24 10v28" /><path d="M31 20.5 36 15l5 5.5" /><path d="M36 15v12" /></svg>
           </span>
           <h1>StudyUp.com</h1>
         </div>
         <form class="panel onboarding-card" id="onboarding-form">
           <label>Name<input name="name" required placeholder="Dein Name" /></label>
-          <label>E-Mail<input name="email" type="email" required placeholder="name@schule.ch" /></label>
+          <label>E-Mail <small>optional</small><input name="email" type="email" placeholder="name@schule.ch" /></label>
           <label>Region / Notensystem<select name="gradeSystem">${state.gradeSystems.map((item) => `<option value="${item.id}" ${item.id === system.id ? "selected" : ""}>${C.escapeHtml(item.name)} · ${C.escapeHtml(item.label)}</option>`).join("")}</select></label>
           <label>App-Sprache<select name="language">${state.languages.map((item) => `<option value="${item.id}" ${item.id === state.settings.language ? "selected" : ""}>${C.escapeHtml(item.name)}</option>`).join("")}</select></label>
           <button class="primary-button" type="submit">StudyUp starten</button>
+          <button class="secondary-button" id="demo-data-button" type="button">Demo-Daten ausprobieren</button>
         </form>
       </section>
     `;
@@ -367,6 +278,98 @@
     ...state.homework.map((task) => ({ id: task.id, subject: task.subject, title: task.title, date: task.dueDate, minutes: 20, type: "Hausaufgabe", homework: true }))
   ].sort((a, b) => a.date.localeCompare(b.date));
 
+  const addDays = (iso, days) => {
+    const date = dateObject(iso || todayIso());
+    date.setDate(date.getDate() + days);
+    return toIso(date);
+  };
+  const openMistakes = () => state.mistakes.filter((mistake) => mistake.reviewStatus !== "fixed");
+  const mistakeLabel = (count) => `${count} ${count === 1 ? "offener Fehler" : "offene Fehler"}`;
+  const cardScheduleFor = (id) => state.cardSchedule[id] || {};
+  const libraryCardsForReview = () => state.cardLibrary.flatMap((pack) => {
+    const limit = isPlus() ? pack.cards.length : Math.min(pack.freeCount || pack.cards.length, pack.cards.length);
+    return pack.cards.slice(0, limit).map((card, index) => ({
+      id: `${pack.id}-${index}`,
+      subject: pack.subject,
+      title: pack.title,
+      packId: pack.id,
+      source: "database",
+      published: true,
+      ...card
+    }));
+  });
+  const allCardsForReview = () => [
+    ...state.flashcards,
+    ...libraryCardsForReview()
+  ].map((card) => ({ ...card, ...cardScheduleFor(card.id) }));
+  const dueCards = () => allCardsForReview().filter((card) => !card.nextReview || card.nextReview <= todayIso());
+  const nextExamOrHomework = () => calendarItems().find((item) => (item.exam || item.homework) && item.date >= todayIso());
+  const weakestSubject = () => {
+    const graded = [...state.subjects].filter(subjectHasGrades).sort((a, b) => plusPointsFor(a) - plusPointsFor(b))[0];
+    if (graded) return { name: graded.name, reason: `${formatPlusPoints(plusPointsFor(graded))} und ${average(graded.grades).toFixed(2)} Schnitt`, href: "#grades" };
+    const byMistake = openMistakes().reduce((map, mistake) => {
+      map[mistake.subject] = (map[mistake.subject] || 0) + 1;
+      return map;
+    }, {});
+    const subject = Object.entries(byMistake).sort((a, b) => b[1] - a[1])[0];
+    return subject ? { name: subject[0], reason: `${subject[1]} offene Fehler`, href: "#mistakes" } : null;
+  };
+  const studyTasksToday = () => {
+    const today = todayIso();
+    const manual = state.studyTasks.filter((task) => !task.done && (!task.date || task.date <= today)).map((task) => ({ ...task, href: "#planner", kind: "Lernaufgabe" }));
+    const calendar = calendarItems().filter((item) => item.date === today).map((item) => ({ id: item.id, title: item.title, subject: item.subject, href: "#planner", kind: item.type }));
+    const cards = dueCards().slice(0, 3).map((card) => ({ id: card.id, title: card.question, subject: card.subject, href: "#cards", kind: "Karte fällig" }));
+    const mistakes = openMistakes().slice(0, 3).map((mistake) => ({ id: mistake.id, title: mistake.question, subject: mistake.subject, href: "#mistakes", kind: "Fehler wiederholen" }));
+    return [...manual, ...calendar, ...mistakes, ...cards].slice(0, 6);
+  };
+  const saveMistake = (mistake) => {
+    state.mistakes.unshift(normalizeMistake(mistake));
+    state.mistakes = state.mistakes.slice(0, 200);
+  };
+  const reviewOffsetForRating = (rating) => ({ again: 1, hard: 2, good: 4, easy: 7 })[rating] || 3;
+  const scheduleCardReview = (card, rating) => {
+    state.cardSchedule[card.id] = { rating, nextReview: addDays(todayIso(), reviewOffsetForRating(rating)), lastReviewed: todayIso() };
+    state.cardReviewStatus = state.cardReviewStatus || {};
+    state.cardReviewStatus[card.id] = rating;
+    if (rating === "again" || rating === "hard") {
+      saveMistake({
+        subject: card.subject,
+        topic: card.title || card.subject,
+        question: card.question,
+        correctAnswer: card.answer,
+        userAnswer: rating === "again" ? "Nicht gewusst" : "Unsicher",
+        explanation: "Aus Karteikarten-Wiederholung gespeichert.",
+        source: "Karten"
+      });
+    }
+  };
+  const updateStreak = () => {
+    const today = todayIso();
+    if (state.streak.lastStudyDate === today) return;
+    const yesterday = addDays(today, -1);
+    state.streak.current = state.streak.lastStudyDate === yesterday ? Number(state.streak.current || 0) + 1 : 1;
+    state.streak.weeklySessions = Number(state.streak.weeklySessions || 0) + 1;
+    state.streak.lastStudyDate = today;
+  };
+  const requiredNextGrade = (subject) => {
+    if (!subject?.targetGrade || !subjectHasGrades(subject)) return null;
+    const values = gradeValues(subject.grades);
+    const target = Number(subject.targetGrade);
+    if (!Number.isFinite(target)) return null;
+    return target * (values.length + 1) - values.reduce((sum, value) => sum + value, 0);
+  };
+  const subjectTrend = (subject) => {
+    const values = gradeValues(subject.grades);
+    if (values.length < 2) return "Noch kein Trend";
+    const system = currentSystem();
+    const delta = values.at(-1) - values.at(-2);
+    const improving = system.higherIsBetter ? delta > 0.05 : delta < -0.05;
+    const falling = system.higherIsBetter ? delta < -0.05 : delta > 0.05;
+    if (improving) return "Verbessert";
+    if (falling) return "Faellt";
+    return "Stabil";
+  };
+
   const nextFocus = () => calendarItems().find((item) => item.date >= todayIso());
   const recommendation = () => {
     const subjectWithoutGrade = state.subjects.find((subject) => !subjectHasGrades(subject));
@@ -376,6 +379,40 @@
     const due = calendarItems().find((item) => item.date >= todayIso());
     if (due) return { title: `${due.subject}: ${due.title}`, href: "#planner" };
     return { title: "Ersten Lerntermin planen", href: "#planner" };
+  };
+
+  const smartRecommendation = () => {
+    const weak = weakestSubject();
+    if (openMistakes().length) return { title: `${openMistakes().length} Fehler gezielt reparieren`, href: "#mistakes" };
+    if (dueCards().length) return { title: `${dueCards().length} Karte(n) heute wiederholen`, href: "#cards" };
+    if (weak) return { title: `${weak.name} gezielt üben`, href: weak.href };
+    const due = nextFocus();
+    if (due) return { title: `${due.subject}: ${due.title}`, href: "#planner" };
+    return { title: "Ersten Lerntermin planen", href: "#planner" };
+  };
+
+  const smartCoachSentence = () => {
+    const mistakeCounts = openMistakes().reduce((counts, mistake) => {
+      counts[mistake.subject] = (counts[mistake.subject] || 0) + 1;
+      return counts;
+    }, {});
+    const mistakeFocus = Object.entries(mistakeCounts).sort((a, b) => b[1] - a[1])[0];
+    if (mistakeFocus) {
+      return `Heute solltest du 15 Minuten ${mistakeFocus[0]} machen, weil du dort ${mistakeLabel(mistakeFocus[1])} hast.`;
+    }
+    const dueBySubject = dueCards().reduce((counts, card) => {
+      counts[card.subject] = (counts[card.subject] || 0) + 1;
+      return counts;
+    }, {});
+    const cardFocus = Object.entries(dueBySubject).sort((a, b) => b[1] - a[1])[0];
+    if (cardFocus) {
+      return `Heute sind ${cardFocus[1]} Karten in ${cardFocus[0]} fällig. Starte eine kurze Wiederholung.`;
+    }
+    const weak = weakestSubject();
+    if (weak) return `Dein nächster sinnvoller Fokus ist ${weak.name}, weil StudyUp dort den größten Übungsbedarf sieht.`;
+    const next = nextExamOrHomework();
+    if (next) return `Bereite dich heute kurz auf ${next.subject} vor: ${next.title} ist am ${formatDate(next.date)} dran.`;
+    return "Starte mit einem Fach, einer Karte oder einem Fehler. StudyUp baut daraus deinen Lerncoach.";
   };
 
   const renderDashboard = () => {
@@ -398,23 +435,132 @@
     `;
   };
 
+  const renderTodayDashboard = () => {
+    const next = nextFocus();
+    const nextWork = nextExamOrHomework();
+    const tip = smartRecommendation();
+    const avg = weightedAverage();
+    const points = plusPointsTotal();
+    const weak = weakestSubject();
+    const tasks = studyTasksToday();
+    const cardsDue = dueCards().length;
+    const mistakesOpen = openMistakes().length;
+    const hasContent = state.subjects.length || state.flashcards.length || state.exams.length || state.homework.length || state.mistakes.length;
+    return `
+      <section class="home-page today-dashboard">
+        <h1>Heute</h1>
+        <article class="coach-sentence-card">
+          <span>StudyUp Coach</span>
+          <strong>${C.escapeHtml(smartCoachSentence())}</strong>
+          <div class="coach-action-row">
+            <button class="primary-button start-study-session" type="button">${C.icon("clock")} 15-Minuten-Lerneinheit starten</button>
+            <a class="secondary-button" href="#mistakes">Fehlerbank</a>
+            <a class="secondary-button" href="#premium">Plus</a>
+          </div>
+        </article>
+        ${hasContent ? "" : `<article class="empty-state dashboard-empty"><strong>Neu hier?</strong><p>Probiere StudyUp mit Beispielnoten, Karten, Fehlern und einem Testtermin aus.</p><button class="secondary-button load-demo-data" type="button">Demo-Daten ausprobieren</button></article>`}
+        <div class="home-metric-row today-metrics">
+          <article><span>Notendurchschnitt</span><strong>${avg === null ? "-" : avg.toFixed(2)}</strong></article>
+          <article><span>Pluspunkte</span><strong>${state.subjects.some(subjectHasGrades) ? formatPlusPoints(points) : "-"}</strong></article>
+        </div>
+        <div class="today-grid">
+          <article class="focus-card today-main-card">
+            <span>Heute zu tun</span>
+            <h2>${tasks.length ? `${tasks.length} Lernschritt${tasks.length === 1 ? "" : "e"}` : "Alles ruhig"}</h2>
+            <div class="today-task-list">
+              ${tasks.map((task) => `<a href="${task.href}"><strong>${C.escapeHtml(task.title)}</strong><small>${C.escapeHtml(task.subject)} - ${C.escapeHtml(task.kind)}</small></a>`).join("") || `<p class="muted-text">Noch keine Aufgaben für heute. Plane einen Termin, speichere Fehler oder starte mit Karten.</p>`}
+            </div>
+          </article>
+          <article class="focus-card">
+            <span>Nächstes</span>
+            <h2>${nextWork ? C.escapeHtml(nextWork.title) : (next ? C.escapeHtml(next.title) : "Kein Termin")}</h2>
+            <p>${nextWork || next ? `${C.escapeHtml((nextWork || next).subject)} - ${formatDate((nextWork || next).date)} - ${C.escapeHtml((nextWork || next).type)}` : "Wenn du Prüfungen, Hausaufgaben oder Termine einträgst, landen sie hier."}</p>
+            <a class="secondary-button" href="#planner">Plan öffnen</a>
+          </article>
+          <article class="focus-card">
+            <span>Schwächstes Fach</span>
+            <h2>${weak ? C.escapeHtml(weak.name) : "Noch offen"}</h2>
+            <p>${weak ? C.escapeHtml(weak.reason) : "Trage Noten ein oder speichere Fehler, damit StudyUp dich gezielter coachen kann."}</p>
+            <a class="secondary-button" href="${weak ? weak.href : "#grades"}">Ansehen</a>
+          </article>
+          <article class="focus-card">
+            <span>Fortschritt</span>
+            <h2>${Number(state.streak.current || 0)} Tage Serie</h2>
+            <p>${Number(state.streak.weeklySessions || 0)} Lerneinheiten diese Woche - ${cardsDue} Karten fällig - ${mistakeLabel(mistakesOpen)}</p>
+            <a class="secondary-button" href="${tip.href}">${C.escapeHtml(tip.title)}</a>
+          </article>
+        </div>
+      </section>
+    `;
+  };
+
+  const sessionMistakes = () => openMistakes().slice(0, 3);
+  const sessionCards = () => dueCards().slice(0, 5);
+  const renderSessionProgress = () => `
+    <div class="session-progress">
+      ${["Fehler", "Karten", "Mini-Check", "Zusammenfassung"].map((label, index) => `<span class="${state.ui.studySessionStep === index ? "active" : ""}">${index + 1}. ${label}</span>`).join("")}
+    </div>
+  `;
+  const renderStudySession = () => {
+    const step = Math.min(Math.max(Number(state.ui.studySessionStep || 0), 0), 3);
+    const mistakes = sessionMistakes();
+    const cards = sessionCards();
+    const cardIndex = Math.min(Math.max(Number(state.ui.studySessionCardIndex || 0), 0), Math.max(0, cards.length - 1));
+    const card = cards[cardIndex];
+    const emptyHelp = `<div class="empty-state"><strong>Noch nicht genug Lernstoff</strong><p>Erstelle ein paar Karten oder füge einen Fehler hinzu. Danach wird die Session automatisch sinnvoller.</p><div class="coach-action-row"><a class="secondary-button" href="#cards">Karten erstellen</a><a class="secondary-button" href="#mistakes">Fehler hinzufügen</a></div></div>`;
+    const content = [
+      `<section class="session-step">
+        <h2>Fehler wiederholen</h2>
+        ${mistakes.length ? mistakes.map((mistake) => `<article class="mistake-card"><div class="mistake-card-top"><strong>${C.escapeHtml(mistake.subject)}</strong><span>${C.escapeHtml(mistake.topic || "Fehler")}</span></div><h2>${C.escapeHtml(mistake.question)}</h2><p>${C.escapeHtml(mistake.explanation || mistake.correctAnswer || "Erkläre dir kurz, warum dieser Punkt schwierig war.")}</p><button class="secondary-button session-fix-mistake" data-id="${mistake.id}" type="button">Verstanden</button></article>`).join("") : emptyHelp}
+      </section>`,
+      `<section class="session-step">
+        <h2>Karten wiederholen</h2>
+        ${card ? `${renderStudyCard(card)}<div class="study-nav-row"><button class="icon-button session-card-prev" type="button" ${cardIndex <= 0 ? "disabled" : ""}>&#8592;</button><span>${cardIndex + 1} / ${cards.length}</span><button class="icon-button session-card-next" type="button" ${cardIndex >= cards.length - 1 ? "disabled" : ""}>&#8594;</button></div><div class="srs-rating-grid"><button class="srs-rating again session-rate-card" data-rating="again" type="button">Nochmal</button><button class="srs-rating hard session-rate-card" data-rating="hard" type="button">Schwer</button><button class="srs-rating good session-rate-card" data-rating="good" type="button">Gut</button><button class="srs-rating easy session-rate-card" data-rating="easy" type="button">Einfach</button></div>` : emptyHelp}
+      </section>`,
+      `<section class="session-step">
+        <h2>Mini-Check</h2>
+        <article class="panel"><p class="panel-note">Schreibe in einem Satz auf, was du gerade besser verstanden hast. Das speichert StudyUp als kleine Lernnotiz.</p><form id="session-check-form"><label>Meine Zusammenfassung<textarea name="summary" rows="4" placeholder="Heute habe ich verstanden, dass ..."></textarea></label><button class="primary-button" type="submit">Speichern und weiter</button></form></article>
+      </section>`,
+      `<section class="session-step">
+        <h2>Gut gemacht</h2>
+        <article class="panel session-summary"><strong>${mistakes.length} Fehler · ${cards.length} Karten</strong><p>Diese Session zählt für deine Lernserie. Du kannst jetzt zurück zu Home oder direkt weiter Karten lernen.</p><div class="coach-action-row"><button class="primary-button complete-study-session" type="button">Session abschließen</button><a class="secondary-button" href="#cards">Weiter Karten lernen</a></div></article>
+      </section>`
+    ][step];
+    return `
+      <section class="study-session-page">
+        <div class="mistake-header">
+          <div><span class="eyebrow">15 Minuten</span><h1>Lerneinheit</h1></div>
+          <a class="secondary-button" href="#dashboard">Beenden</a>
+        </div>
+        ${renderSessionProgress()}
+        ${content}
+        <div class="session-controls">
+          <button class="secondary-button session-prev-step" type="button" ${step <= 0 ? "disabled" : ""}>Zurück</button>
+          <button class="primary-button session-next-step" type="button" ${step >= 3 ? "disabled" : ""}>Weiter</button>
+        </div>
+      </section>
+    `;
+  };
+
   const gradeInputAttrs = () => {
     const system = currentSystem();
-    return `min="${system.min}" max="${system.max}" step="0.01"`;
-  };
-  const gradeInputBounds = () => {
-    const system = currentSystem();
-    return `min="${system.min}" max="${system.max}" step="0.01"`;
+    return `min="${system.min}" max="${system.max}" step="0.01" placeholder="${C.escapeHtml(system.example)}"`;
   };
 
   const gradeSubjectById = (id) => state.subjects.find((subject) => subject.id === id);
   const gradeEntryById = (subject, id) => subject?.grades.find((grade) => grade.id === id);
+  const renderGradeActions = (gradeId, partialId = "") => `
+    <div class="grade-row-actions">
+      <button class="icon-action rename-grade" data-grade="${gradeId}" data-partial="${partialId}" type="button" title="Umbenennen">${C.icon("edit")}</button>
+      <button class="icon-action delete-grade" data-grade="${gradeId}" data-partial="${partialId}" type="button" title="Löschen">${C.icon("trash")}</button>
+    </div>
+  `;
   const renderGradeEntryRow = (grade) => {
     const isPartial = grade.type === "partial";
     const value = gradeValue(grade);
     return `
       <article class="grade-swipe-row ${isPartial ? "partial-folder-row" : ""}">
-        <button class="grade-row-main ${isPartial ? "open-partial-folder" : "open-grade-edit"}" data-id="${grade.id}" type="button">
+        <button class="grade-row-main ${isPartial ? "open-partial-folder" : ""}" data-id="${grade.id}" type="button">
           <span class="grade-row-icon">${C.icon(isPartial ? "folder" : "chart")}</span>
           <div>
             <strong>${C.escapeHtml(grade.title)}</strong>
@@ -422,6 +568,7 @@
           </div>
           <em>${Number.isFinite(value) ? value.toFixed(2) : "–"}</em>
         </button>
+        ${renderGradeActions(grade.id)}
       </article>
     `;
   };
@@ -430,40 +577,23 @@
     const avg = subjectHasGrades(subject) ? average(subject.grades) : null;
     const points = plusPointsFor(subject);
     return `
-      <article class="subject-swipe-row" data-id="${subject.id}">
+      <article class="subject-folder-row">
         <button class="grade-folder" data-id="${subject.id}" type="button">
           <span class="folder-icon">${C.icon("book")}</span>
           <div><strong>${C.escapeHtml(subject.name)}</strong><small>${subject.grades.length} Einträge</small></div>
           <em>${avg === null ? "–" : avg.toFixed(2)}</em>
           <b class="${points >= 0 ? "positive" : "negative"}">${formatPlusPoints(points)}</b>
         </button>
-        <div class="subject-row-actions">
-          <button class="delete-subject" data-id="${subject.id}" type="button" aria-label="${C.escapeHtml(subject.name)} löschen">${C.icon("trash")}</button>
-        </div>
+        <button class="icon-action delete-subject" data-id="${subject.id}" type="button" title="Fach löschen">${C.icon("trash")}</button>
       </article>
     `;
   }).join("") || `<div class="empty-grade-list">Füge oben dein erstes Fach hinzu.</div>`;
-
-  const renderSubjectAddView = () => `
-    <section class="grade-page grade-form-only">
-      <div class="grade-page-header">
-        <button class="secondary-button close-subject-form" type="button">Zurück</button>
-        <h1>Fach hinzufügen</h1>
-      </div>
-      <form class="subject-add-form show" id="subject-form">
-        <label>Fach<input name="name" required /></label>
-        <label>Gewichtung<input name="weight" type="number" min="0.5" max="4" step="0.5" value="1" /></label>
-        <button class="primary-button" type="submit">Fach hinzufügen</button>
-      </form>
-    </section>
-  `;
 
   const renderGrades = () => {
     const selected = gradeSubjectById(state.ui.selectedGradeSubject);
     const partial = selected ? gradeEntryById(selected, state.ui.selectedPartialGroup) : null;
     if (selected && partial?.type === "partial") return renderPartialGroupDetail(selected, partial);
     if (selected) return renderGradeSubjectDetail(selected);
-    if (state.ui.showSubjectForm) return renderSubjectAddView();
 
     return `
       <section class="grade-page">
@@ -471,37 +601,22 @@
           <h1>Noten</h1>
           <button class="round-add" id="toggle-subject-form" type="button">+</button>
         </div>
-        <section class="grade-folder-list">${renderSubjectFolders()}</section>
-      </section>
-    `;
-  };
-
-  const renderGradeEntryFormView = (subject) => {
-    const editing = gradeEntryById(subject, state.ui.editingGradeId);
-    const isEditing = Boolean(editing);
-    const isPartial = editing?.type === "partial";
-    return `
-      <section class="grade-page grade-form-only">
-        <div class="grade-page-header folder-detail-header">
-          <button class="secondary-button close-grade-entry-form" type="button">Zurück</button>
-          <h1>${isEditing ? "Prüfung bearbeiten" : "Prüfung hinzufügen"}</h1>
-        </div>
-        <form class="grade-entry-form show" id="grade-form">
-          <label>Prüfung oder Ordner<input name="title" required value="${C.escapeHtml(editing?.title || "")}" /></label>
-          <label>Note<input name="value" type="number" ${gradeInputBounds()} value="${!isPartial && Number.isFinite(Number(editing?.value)) ? Number(editing.value) : ""}" ${isPartial ? "disabled" : ""} /></label>
-          <label class="toggle-field"><input name="isPartial" type="checkbox" value="partial" ${isPartial ? "checked" : ""} ${isEditing ? "disabled" : ""} /><span>Teilnoten</span><small>Erstellt einen Ordner für Teilprüfungen. Gewicht immer 1.</small></label>
-          ${isEditing ? `<button class="danger-button delete-editing-grade" type="button">${C.icon("trash")} Löschen</button>` : ""}
-          <button class="primary-button" type="submit">Speichern</button>
+        <form class="subject-add-form ${state.ui.showSubjectForm ? "show" : ""}" id="subject-form">
+          <label>Fach<select name="name" required>${subjectChoices.map((subject) => `<option value="${C.escapeHtml(subject)}">${C.escapeHtml(subject)}</option>`).join("")}</select></label>
+          <label>Gewichtung<input name="weight" type="number" min="0.5" max="4" step="0.5" value="1" /></label>
+          <button class="primary-button" type="submit">Fach hinzufügen</button>
         </form>
+        ${state.ui.showSubjectForm ? "" : `<section class="grade-folder-list">${renderSubjectFolders()}</section>`}
       </section>
     `;
   };
 
   const renderGradeSubjectDetail = (subject) => {
-    if (state.ui.showGradeEntryForm) return renderGradeEntryFormView(subject);
     const avg = subjectHasGrades(subject) ? average(subject.grades) : null;
     const points = plusPointsFor(subject);
     const target = subject.targetGrade ? Number(subject.targetGrade).toFixed(2) : "–";
+    const needed = requiredNextGrade(subject);
+    const trend = subjectTrend(subject);
     return `
       <section class="grade-page">
         <div class="grade-page-header folder-detail-header">
@@ -514,37 +629,30 @@
           <article class="target-grade-card"><span>Wunschnote</span><button class="target-grade-button" type="button">${C.escapeHtml(target)}</button></article>
           <article><span>Pluspunkte</span><strong class="${points >= 0 ? "positive" : "negative"}">${formatPlusPoints(points)}</strong></article>
         </div>
+        <div class="grade-coach-row">
+          <article><span>Nächste Note für Ziel</span><strong>${Number.isFinite(needed) ? needed.toFixed(2) : "-"}</strong></article>
+          <article><span>Trend</span><strong>${C.escapeHtml(trend)}</strong></article>
+          <button class="secondary-button create-subject-task" data-subject="${C.escapeHtml(subject.name)}" type="button">Lerntermin planen</button>
+        </div>
         <form class="target-grade-form ${state.ui.showTargetGradeForm ? "show" : ""}" id="target-grade-form">
           <label>Wunschnote<input name="targetGrade" type="number" ${gradeInputAttrs()} value="${C.escapeHtml(subject.targetGrade || "")}" /></label>
           <button class="primary-button" type="submit">Wunschnote speichern</button>
         </form>
-        <section class="grade-entry-list">
-          ${subject.grades.map(renderGradeEntryRow).join("") || `<div class="empty-grade-list">Drücke +, um die erste Prüfung einzutragen.</div>`}
-        </section>
-      </section>
-    `;
-  };
-
-  const renderPartialEntryFormView = (subject, group) => {
-    const editing = group.partialGrades.find((grade) => grade.id === state.ui.editingPartialGradeId);
-    return `
-      <section class="grade-page grade-form-only">
-        <div class="grade-page-header folder-detail-header">
-          <button class="secondary-button close-partial-entry-form" type="button">Zurück</button>
-          <h1>${editing ? "Teilprüfung bearbeiten" : "Teilprüfung hinzufügen"}</h1>
-        </div>
-        <form class="grade-entry-form show" id="partial-grade-form">
-          <label>Teilprüfung<input name="title" required value="${C.escapeHtml(editing?.title || "")}" /></label>
-          <label>Note<input name="value" required type="number" ${gradeInputBounds()} value="${Number.isFinite(Number(editing?.value)) ? Number(editing.value) : ""}" /></label>
-          <button class="primary-button" type="submit">Teilprüfung speichern</button>
-          ${editing ? `<button class="danger-button delete-editing-partial-grade" type="button">${C.icon("trash")} Löschen</button>` : ""}
+        <form class="grade-entry-form ${state.ui.showGradeEntryForm ? "show" : ""}" id="grade-form">
+          <label>Prüfung oder Ordner<input name="title" required placeholder="z. B. Mathe-Test" /></label>
+          <label>Datum<input name="date" type="date" value="${todayIso()}" /></label>
+          <label>Note<input name="value" type="number" ${gradeInputAttrs()} /></label>
+          <label class="toggle-field"><input name="isPartial" type="checkbox" value="partial" /><span>Teilnoten</span><small>Erstellt einen Ordner für Teilprüfungen. Gewicht immer 1.</small></label>
+          <button class="primary-button" type="submit">Speichern</button>
         </form>
+        ${state.ui.showGradeEntryForm ? "" : `<section class="grade-entry-list">
+          ${subject.grades.map(renderGradeEntryRow).join("") || `<div class="empty-grade-list">Drücke +, um die erste Prüfung einzutragen.</div>`}
+        </section>`}
       </section>
     `;
   };
 
   const renderPartialGroupDetail = (subject, group) => {
-    if (state.ui.showPartialEntryForm) return renderPartialEntryFormView(subject, group);
     const avg = group.partialGrades.length ? average(group.partialGrades) : null;
     return `
       <section class="grade-page">
@@ -558,17 +666,24 @@
           <article><span>Durchschnitt</span><strong>${avg === null ? "–" : avg.toFixed(2)}</strong></article>
           <article><span>Gewicht</span><strong>1</strong></article>
         </div>
-        <section class="grade-entry-list">
+        <form class="grade-entry-form ${state.ui.showPartialEntryForm ? "show" : ""}" id="partial-grade-form">
+          <label>Teilprüfung<input name="title" required placeholder="z. B. Kurztest 1" /></label>
+          <label>Datum<input name="date" type="date" value="${todayIso()}" /></label>
+          <label>Note<input name="value" required type="number" ${gradeInputAttrs()} /></label>
+          <button class="primary-button" type="submit">Teilprüfung speichern</button>
+        </form>
+        ${state.ui.showPartialEntryForm ? "" : `<section class="grade-entry-list">
           ${group.partialGrades.map((grade) => `
             <article class="grade-swipe-row">
-              <button class="grade-row-main open-partial-grade-edit" data-id="${grade.id}" type="button">
+              <div class="grade-row-main static">
                 <span class="grade-row-icon">${C.icon("chart")}</span>
-                <div><strong>${C.escapeHtml(grade.title)}</strong><small>Gewicht 1</small></div>
+                <div><strong>${C.escapeHtml(grade.title)}</strong><small>${grade.date ? formatDate(grade.date) : "Ohne Datum"} · Gewicht 1</small></div>
                 <em>${Number(grade.value).toFixed(2)}</em>
-              </button>
+              </div>
+              ${renderGradeActions(grade.id, group.id)}
             </article>
           `).join("") || `<div class="empty-grade-list">Drücke +, um die erste Teilprüfung einzutragen.</div>`}
-        </section>
+        </section>`}
       </section>
     `;
   };
@@ -589,72 +704,48 @@
     });
   };
 
-  const createExamWeekPlan = ({ subject, title, date }) => {
-    const examDate = dateObject(date);
-    return Array.from({ length: 7 }, (_, index) => {
-      const stepDate = new Date(examDate);
-      stepDate.setDate(stepDate.getDate() - (7 - index));
-      const step = planSteps[index % planSteps.length];
-      return { id: uid("event"), subject, title: `${step}: ${title}`, date: toIso(stepDate), minutes: 25, type: step, auto: true };
-    });
-  };
-
-  const renderCalendarMonth = (year, month, items) => {
+  const renderMonthCalendar = (monthOffset = 0) => {
+    const base = new Date();
+    const now = new Date(base.getFullYear(), base.getMonth() + monthOffset, 1);
+    const year = now.getFullYear();
+    const month = now.getMonth();
     const first = new Date(year, month, 1);
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const offset = (first.getDay() + 6) % 7;
-    const title = new Intl.DateTimeFormat(state.settings.language || currentSystem().language, { month: "long" }).format(first);
+    const items = calendarItems();
     const cells = [
       ...Array.from({ length: offset }, () => `<div class="calendar-cell empty"></div>`),
       ...Array.from({ length: daysInMonth }, (_, index) => {
         const day = index + 1;
         const iso = toIso(new Date(year, month, day));
         const dayItems = items.filter((item) => item.date === iso);
-        return `<div class="calendar-cell ${iso === todayIso() ? "today" : ""}"><strong>${day}</strong>${dayItems.slice(0, 2).map((item) => `<span class="${item.exam ? "exam-dot" : item.homework ? "homework-dot" : ""}" title="${C.escapeHtml(item.title)}">${C.escapeHtml(item.subject)}</span>`).join("")}</div>`;
+        return `<div class="calendar-cell ${iso === todayIso() ? "today" : ""}"><strong>${day}</strong>${dayItems.slice(0, 3).map((item) => `<span class="${item.exam ? "exam-dot" : item.homework ? "homework-dot" : ""}">${C.escapeHtml(item.subject)}</span>`).join("")}</div>`;
       })
     ];
-    return `<article class="calendar-month-panel"><h3>${C.escapeHtml(title)}</h3><div class="weekdays"><span>Mo</span><span>Di</span><span>Mi</span><span>Do</span><span>Fr</span><span>Sa</span><span>So</span></div><div class="calendar-grid">${cells.join("")}</div></article>`;
+    return `
+      <article class="month-panel">
+        <h3>${formatDate(toIso(new Date(year, month, 1)), { month: "long", year: "numeric" })}</h3>
+        <div class="weekdays"><span>Mo</span><span>Di</span><span>Mi</span><span>Do</span><span>Fr</span><span>Sa</span><span>So</span></div>
+        <div class="calendar-grid">${cells.join("")}</div>
+      </article>
+    `;
   };
 
-  const currentCalendarDate = () => {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth() + Number(state.ui.calendarMonthOffset || 0), 1);
-  };
+  const renderCalendar = () => `<div class="calendar-month-stack">${[0, 1, 2].map(renderMonthCalendar).join("")}</div>`;
 
-  const calendarOffsetForDate = (date) => {
-    const now = new Date();
-    const target = dateObject(date || todayIso());
-    return (target.getFullYear() - now.getFullYear()) * 12 + target.getMonth() - now.getMonth();
-  };
-
-  const renderCalendar = () => {
-    const selectedMonth = currentCalendarDate();
-    const year = selectedMonth.getFullYear();
-    const month = selectedMonth.getMonth();
-    const items = calendarItems();
-    return `<div class="calendar-current-grid">${renderCalendarMonth(year, month, items)}</div>`;
-  };
-
-  const renderPlannerAddForm = () => `
-    ${C.sectionTitle("Plan", "Kalender")}
-    <section class="panel calendar-only-panel calendar-add-only">
-      <div class="panel-header"><div><span>Neu</span><h2>Eintrag hinzufügen</h2></div><button class="round-add" id="toggle-event-form" type="button" aria-label="Formular schließen">&times;</button></div>
-      <form id="event-form" class="calendar-entry-form ${state.ui.showEventForm ? "show" : ""}">
-        <label>Eintrag<select name="kind"><option value="event">Termin</option><option value="exam">Prüfung</option><option value="homework">Hausaufgabe</option></select></label>
-        <label>Fach<input name="subject" required /></label>
-        <label>Titel<input name="title" required /></label>
-        <label>Datum<input name="date" required type="date" value="${todayIso()}" /></label>
-        <label class="toggle-field"><input name="autoPlan" type="checkbox" value="yes" /><span>Automatische Lerntermine</span><small>Bei Prüfungen wird eine Woche vorher automatisch geplant.</small></label>
-        <button class="primary-button" type="submit">Eintragen</button>
-      </form>
-    </section>
-  `;
-
-  const renderPlanner = () => state.ui.showEventForm ? renderPlannerAddForm() : `
+  const renderPlanner = () => `
     ${C.sectionTitle("Plan", "Kalender")}
     <section class="panel calendar-only-panel">
-      <div class="panel-header"><div><span>${new Intl.DateTimeFormat(state.settings.language || currentSystem().language, { month: "long", year: "numeric" }).format(currentCalendarDate())}</span><h2>Kalender</h2></div><div class="calendar-header-actions"><button class="calendar-month-step" data-offset="-1" type="button" aria-label="Vorheriger Monat">‹</button><button class="calendar-month-step" data-offset="1" type="button" aria-label="Nächster Monat">›</button><button class="round-add" id="toggle-event-form" type="button" aria-label="Eintrag hinzufügen">+</button></div></div>
-      ${renderCalendar()}
+      <div class="panel-header"><div><span>${formatDate(todayIso(), { month: "long", year: "numeric" })}</span><h2>${state.ui.showEventForm ? "Eintrag hinzufügen" : "Kalender"}</h2></div><button class="round-add" id="toggle-event-form" type="button">${state.ui.showEventForm ? "×" : "+"}</button></div>
+      ${state.ui.showEventForm ? "" : renderCalendar()}
+      <form id="event-form" class="calendar-entry-form ${state.ui.showEventForm ? "show" : ""}">
+        <label>Eintrag<select name="kind"><option value="event">Termin</option><option value="exam">Prüfung</option><option value="homework">Hausaufgabe</option></select></label>
+        <label>Fach<input name="subject" required placeholder="z. B. Französisch" /></label>
+        <label>Titel<input name="title" required placeholder="z. B. UNIT 1" /></label>
+        <label>Datum<input name="date" required type="date" value="${todayIso()}" /></label>
+        <label class="toggle-field"><input name="autoPlan" type="checkbox" value="on" /><span>Automatische Lerntermine</span><small>StudyUp trägt Wiederholen, Üben, Karteikarten und Mini-Test bis zum Datum ein.</small></label>
+        <button class="primary-button" type="submit">Eintragen</button>
+      </form>
     </section>
   `;
 
@@ -665,181 +756,273 @@
 
   const personalCards = () => state.flashcards.filter((card) => card.source !== "database");
   const recommendedPack = () => filteredLibrary()[0] || state.cardLibrary[0];
-  const cardsForPack = (pack) => {
-    if (!pack?.cards?.length) return [];
+  const renderStack = (title, subtitle, count, kind, actionText) => `
+    <button class="quizlet-large-stack" data-stack="${kind}" type="button">
+      <div class="big-card-stack"><i></i><i></i><i></i></div>
+      <strong>${C.escapeHtml(title)}</strong>
+      <span>${C.escapeHtml(subtitle)}</span>
+      <small>${count} Karten</small>
+      <em>${actionText}</em>
+    </button>
+  `;
+
+  const renderStudyCard = (card) => card ? `
+    <button class="study-flashcard ${C.difficultyClass(card.difficulty)}" type="button">
+      <span class="flip-hint">Tippen zum Umdrehen</span>
+      <div class="study-flashcard-inner">
+        <div class="study-flashcard-face front">
+          <small>${C.escapeHtml(card.subject)}</small>
+          <h2>${C.escapeHtml(card.question)}</h2>
+        </div>
+        <div class="study-flashcard-face back">
+          <small>Lösung</small>
+          <h2>${C.escapeHtml(card.answer)}</h2>
+        </div>
+      </div>
+    </button>
+  ` : C.emptyState("Keine Karte", "Lade einen Stapel oder erstelle deine erste Karte.");
+
+  const activeStudyCards = () => {
+    if (state.ui.cardStudyMode === "due") return dueCards();
+    if (state.ui.cardStudyMode === "personal") return state.flashcards.filter((card) => card.source !== "database").map((card) => ({ ...card, ...cardScheduleFor(card.id) }));
+    const pack = recommendedPack();
+    if (!pack) return [];
     const limit = isPlus() ? pack.cards.length : Math.min(pack.freeCount || pack.cards.length, pack.cards.length);
     return pack.cards.slice(0, limit).map((card, index) => ({
       id: `${pack.id}-${index}`,
       subject: pack.subject,
+      title: pack.title,
       packId: pack.id,
       source: "database",
       published: true,
-      reviewCount: 0,
-      ...card
+      ...card,
+      ...cardScheduleFor(`${pack.id}-${index}`)
     }));
-  };
-  const activeStudyPack = () => state.cardLibrary.find((pack) => pack.id === state.ui.cardStudyPackId) || recommendedPack();
-  const allCardsForReview = () => [
-    ...state.cardLibrary.flatMap(cardsForPack),
-    ...personalCards().map((card) => ({ ...card, id: card.id || uid("card") }))
-  ];
-  const cardsForBucket = (bucket, source = state.ui.cardStudySource, packId = state.ui.cardStudyPackId) => allCardsForReview().filter((card) => {
-    if (state.cardReviewStatus[card.id] !== bucket) return false;
-    if (source === "personal") return card.source !== "database";
-    if (source === "pack") return card.packId === packId;
-    return true;
-  });
-  const activeStudyCards = () => {
-    if (state.ui.cardStudyMode === "bucket") return cardsForBucket(state.ui.cardStudyBucket);
-    if (state.ui.cardStudyMode === "personal") return personalCards();
-    return cardsForPack(activeStudyPack());
-  };
-  const cardBucketCountsFor = (cards) => ({
-    good: cards.filter((card) => state.cardReviewStatus[card.id] === "good").length,
-    bad: cards.filter((card) => state.cardReviewStatus[card.id] === "bad").length
-  });
-  const cardBucketTitle = (bucket) => {
-    const t = cardText();
-    return { good: t.good, bad: t.bad }[bucket] || t.section;
-  };
-  const rateStudyCard = (card, rating) => {
-    if (!card?.id) return;
-    state.cardReviewStatus[card.id] = rating === "good" ? "good" : "bad";
-    const cards = activeStudyCards();
-    state.ui.cardStudyIndex = Math.min(Number(state.ui.cardStudyIndex || 0) + 1, Math.max(cards.length - 1, 0));
-  };
-
-  const renderCardCreateView = () => {
-    const aiAllowed = isPlus();
-    const freeCardLimitReached = !isPlus() && personalCards().length >= 50;
-    return `
-      ${C.sectionTitle(cardText().section, cardText().section)}
-      <section class="create-card-sheet standalone-create show">
-        <div class="create-sheet-header">
-          <div><span>Neu</span><h2>${C.escapeHtml(cardText().create)}</h2></div>
-          <button class="ghost-icon close-card-create" type="button" aria-label="Schließen">&times;</button>
-        </div>
-        <div class="create-options">
-          <button class="secondary-button choose-card-mode" data-mode="ai" type="button" ${aiAllowed ? "" : "disabled"}>${C.icon("camera")} ${aiAllowed ? "Mit AI" : "AI ab Plus"}</button>
-          <button class="secondary-button choose-card-mode" data-mode="self" type="button">${C.icon("add")} Selbst</button>
-        </div>
-        ${!aiAllowed ? `<div class="empty-state"><strong>AI-Karten sind Plus und Pro.</strong><p>Free bleibt zum Organisieren stark. Für AI-Karten kannst du später Plus oder Pro aktivieren.</p></div>` : ""}
-        ${state.ui.cardCreateMode === "ai" && aiAllowed ? `<div class="panel photo-card-panel"><h2>Vokabelheft fotografieren</h2><button class="ghost-button close-card-create" type="button">Abbrechen</button><label>Fach<input id="photo-card-subject" /></label><label class="upload-tile">${C.icon("camera")} Foto auswählen<input id="photo-card-input" type="file" accept="image/*" capture="environment" /></label><p class="plan-note">Plus enthält AI-Karten. Pro ist für größere Foto-Scans und Prüfungsvorbereitung gedacht.</p></div>` : ""}
-        ${state.ui.cardCreateMode === "self" ? `<form class="panel form-panel" id="card-form"><div class="form-title-row"><h2>Eigene Karte</h2><button class="ghost-button close-card-create" type="button">Abbrechen</button></div>${freeCardLimitReached ? `<div class="empty-state"><strong>Free-Limit erreicht.</strong><p>Free enthält 50 persönliche Karten. Plus und Pro heben dieses Limit auf.</p></div>` : ""}<label>Titel / Fach<input name="subject" required ${freeCardLimitReached ? "disabled" : ""} /></label><label>Frage<textarea name="question" required rows="3" ${freeCardLimitReached ? "disabled" : ""}></textarea></label><label>Antwort<textarea name="answer" required rows="3" ${freeCardLimitReached ? "disabled" : ""}></textarea></label><label>Status<select name="difficulty" ${freeCardLimitReached ? "disabled" : ""}><option value="1" selected>Gut</option><option value="3">Schlecht</option></select></label><button class="primary-button" type="submit" ${freeCardLimitReached ? "disabled" : ""}>Card speichern</button></form>` : ""}
-      </section>
-    `;
   };
 
   const renderCardStudyView = () => {
-    const t = cardText();
-    const pack = activeStudyPack();
     const cards = activeStudyCards();
-    const safeIndex = Math.min(Math.max(Number(state.ui.cardStudyIndex || 0), 0), Math.max(cards.length - 1, 0));
-    const card = cards[safeIndex];
-    const isBucketMode = state.ui.cardStudyMode === "bucket";
-    const studyTitle = isBucketMode ? `${cardBucketTitle(state.ui.cardStudyBucket)} ${t.section}` : state.ui.cardStudyMode === "personal" ? t.personal : pack?.title || t.recommended;
+    const index = Math.min(Math.max(0, Number(state.ui.cardStudyIndex || 0)), Math.max(0, cards.length - 1));
+    const card = cards[index];
     return `
-      ${C.sectionTitle(t.section, t.section)}
-      <section class="card-study-view">
-        <div class="card-study-header">
-          <button class="ghost-button close-card-study" type="button">${C.escapeHtml(t.back)}</button>
-          <div><span>${C.escapeHtml(isBucketMode ? cardBucketTitle(state.ui.cardStudyBucket) : pack?.subject || t.recommended)}</span><h2>${C.escapeHtml(studyTitle)}</h2></div>
+      ${C.sectionTitle("Karten", state.ui.cardStudyMode === "personal" ? "Persoenliche Karten" : state.ui.cardStudyMode === "due" ? "Heute fällig" : "Empfohlener Stapel")}
+      <section class="flashcard-study-area card-study-view">
+        <div class="study-view-header">
+          <button class="secondary-button close-study-view" type="button">Zurück</button>
+          <strong>${cards.length ? `${index + 1} / ${cards.length}` : "0 / 0"}</strong>
         </div>
-        ${card ? `
-          <button class="study-flashcard" type="button" aria-label="Karte umdrehen">
-            <span class="study-flashcard-inner">
-              <span class="study-flashcard-face front"><small>Frage</small><strong>${C.escapeHtml(card.question)}</strong></span>
-              <span class="study-flashcard-face back"><small>Antwort</small><strong>${C.escapeHtml(card.answer)}</strong></span>
-            </span>
-          </button>
-          <div class="card-study-controls">
-            <button class="study-arrow-button study-prev" type="button" aria-label="${C.escapeHtml(t.previous)}" ${safeIndex <= 0 ? "disabled" : ""}>‹</button>
-            <span class="card-counter">${safeIndex + 1} / ${cards.length}</span>
-            <button class="study-arrow-button study-next" type="button" aria-label="${C.escapeHtml(t.next)}" ${safeIndex >= cards.length - 1 ? "disabled" : ""}>›</button>
-          </div>
-          <div class="card-rating-grid two-options">
-            <button class="card-rating-card good" data-rating="good" type="button"><span></span><strong>${C.escapeHtml(t.good)}</strong></button>
-            <button class="card-rating-card bad" data-rating="bad" type="button"><span></span><strong>${C.escapeHtml(t.bad)}</strong></button>
-          </div>
-        ` : C.emptyState(t.empty, t.emptyText)}
+        ${renderStudyCard(card)}
+        <div class="study-nav-row">
+          <button class="icon-button study-prev" type="button" ${index <= 0 ? "disabled" : ""} title="Vorherige Karte">&#8592;</button>
+          <span>${card ? C.escapeHtml(card.subject) : "Keine Karten"}</span>
+          <button class="icon-button study-next" type="button" ${index >= cards.length - 1 ? "disabled" : ""} title="Nächste Karte">&#8594;</button>
+        </div>
+        ${card ? `<div class="srs-rating-grid">
+          <button class="srs-rating again" data-rating="again" type="button">Nochmal</button>
+          <button class="srs-rating hard" data-rating="hard" type="button">Schwer</button>
+          <button class="srs-rating good" data-rating="good" type="button">Gut</button>
+          <button class="srs-rating easy" data-rating="easy" type="button">Einfach</button>
+        </div>` : ""}
       </section>
     `;
   };
 
-  const renderStack = ({ title, subtitle, count, kind, actionText, source, packId, cards }) => {
-    const counts = cardBucketCountsFor(cards);
-    return `
-      <article class="quizlet-large-stack deck-stack" data-stack="${kind}" data-source="${source}" data-pack="${C.escapeHtml(packId || "")}">
-        <button class="stack-main" data-stack="${kind}" data-source="${source}" data-pack="${C.escapeHtml(packId || "")}" type="button">
-          <div class="big-card-stack"><i></i><i></i><i></i></div>
-          <strong>${C.escapeHtml(title)}</strong>
-          <span>${C.escapeHtml(subtitle)}</span>
-          <small>${count} ${C.escapeHtml(cardText().section)}</small>
-          <em>${actionText}</em>
-        </button>
-        <div class="deck-status-column">
-          <button class="deck-count-pill good" data-bucket="good" data-source="${source}" data-pack="${C.escapeHtml(packId || "")}" type="button" aria-label="${C.escapeHtml(cardText().good)}: ${counts.good}"><strong>${counts.good}</strong></button>
-          <button class="deck-count-pill bad" data-bucket="bad" data-source="${source}" data-pack="${C.escapeHtml(packId || "")}" type="button" aria-label="${C.escapeHtml(cardText().bad)}: ${counts.bad}"><strong>${counts.bad}</strong></button>
-        </div>
-      </article>
-    `;
-  };
+  const renderCardCreatePanel = () => `
+    ${C.sectionTitle("Karten", "Neue Karte")}
+    <section class="create-card-sheet standalone-create show">
+      <div class="create-sheet-header">
+        <strong>Karte hinzufügen</strong>
+        <button class="icon-button close-card-create" type="button" title="Schließen">×</button>
+      </div>
+      <div class="create-options">
+        <button class="secondary-button choose-card-mode" data-mode="ai" type="button">${C.icon("camera")} Mit KI ${isPlus() ? "" : "· Plus"}</button>
+        <button class="secondary-button choose-card-mode" data-mode="self" type="button">${C.icon("add")} Selbst</button>
+      </div>
+      ${state.ui.cardCreateMode === "ai" ? (isPlus() ? `<div class="panel photo-card-panel"><h2>KI-Karten Generator</h2><p class="panel-note">Plus und Pro bekommen KI-Karten. Foto-zu-Karten ist ein Pro-Feature und kommt bald.</p>${state.ui.lastPhotoName ? `<div class="empty-state"><strong>Ausgewählt: ${C.escapeHtml(state.ui.lastPhotoName)}</strong><p>OCR und automatische Kartenerstellung sind noch nicht aktiv.</p></div>` : ""}<label>Fach<input id="photo-card-subject" placeholder="z. B. Französisch" /></label><label class="upload-tile ${isPro() ? "" : "locked-upload"}">${C.icon("camera")} Foto auswählen (${isPro() ? "kommt bald" : "Pro"})<input id="photo-card-input" type="file" accept="image/*" capture="environment" ${isPro() ? "" : "disabled"} /></label></div>` : `<div class="panel locked-feature"><h2>KI-Karten sind Plus</h2><p class="panel-note">Free bleibt für eigene Karten nutzbar. Upgrade auf Plus, wenn StudyUp Karten automatisch vorbereiten soll.</p><a class="primary-button" href="#premium">Pläne ansehen</a></div>`) : ""}
+      ${state.ui.cardCreateMode === "self" ? `<form class="panel form-panel" id="card-form"><label>Titel / Fach<input name="subject" required placeholder="z. B. Französisch UNIT 1" /></label><label>Frage<textarea name="question" required rows="3"></textarea></label><label>Antwort<textarea name="answer" required rows="3"></textarea></label><label>Status<select name="difficulty"><option value="1">Gut</option><option value="2" selected>Okay</option><option value="3">Schlecht</option></select></label><button class="primary-button" type="submit">Karte speichern</button></form>` : ""}
+    </section>
+  `;
 
   const renderCards = () => {
-    if (state.ui.cardCreateOpen) return renderCardCreateView();
     if (state.ui.cardStudyOpen) return renderCardStudyView();
-    const t = cardText();
+    if (state.ui.cardCreateOpen) return renderCardCreatePanel();
     const pack = recommendedPack();
     const personal = personalCards();
-    const packCards = cardsForPack(pack);
+    const dueCount = dueCards().length;
+    const visibleCards = (state.ui.selectedCardSubject ? state.flashcards.filter((card) => card.subject === state.ui.selectedCardSubject) : state.flashcards).slice(0, 8);
+    const activeCard = visibleCards[0];
     return `
-      ${C.sectionTitle(t.section, t.section)}
+      ${C.sectionTitle("Karten", "Karten")}
+      <div class="coach-action-row cards-toolbar"><a class="secondary-button" href="#mistakes">Fehlerbank öffnen</a></div>
       <section class="cards-search-panel">
-        <div class="search-box">${C.icon("search")}<input id="card-search" placeholder="${C.escapeHtml(t.search)}" value="${C.escapeHtml(state.ui.cardSearch || "")}" /></div>
+        <div class="search-box">${C.icon("search")}<input id="card-search" placeholder="Karten-Datenbank durchsuchen" value="${C.escapeHtml(state.ui.cardSearch || "")}" /></div>
       </section>
       <section class="card-stack-board">
-        ${renderStack({ title: t.personal, subtitle: "Nur für dich", count: personal.length, kind: "personal", actionText: t.open, source: "personal", cards: personal })}
-        ${renderStack({ title: pack ? pack.title : t.recommended, subtitle: pack ? pack.subject : "Datenbank", count: pack ? pack.totalCount : 0, kind: "recommended", actionText: t.learn, source: "pack", packId: pack?.id || "", cards: packCards })}
+        ${renderStack("Persönliche Karten", "Nur für dich", personal.length, "personal", "Öffnen")}
+        ${renderStack(pack ? pack.title : "Empfohlen", pack ? pack.subject : "Datenbank", pack ? pack.totalCount : 0, "recommended", "Laden")}
+        ${dueCount ? renderStack("Heute fällig", "Spaced Repetition", dueCount, "due", "Starten") : ""}
+      </section>
+      <section class="flashcard-study-area">
+        ${renderStudyCard(activeCard)}
+      </section>
+      <section class="panel card-results">
+        ${visibleCards.map((card) => `<article class="mini-card ${C.difficultyClass(card.difficulty)}"><span>${C.difficultyLabel(card.difficulty)}</span><h3>${C.escapeHtml(card.question)}</h3><p>${C.escapeHtml(card.answer)}</p><small>${C.escapeHtml(card.subject)} · ${card.source === "ai" ? "AI" : card.source === "database" ? "Datenbank" : "Privat"}</small></article>`).join("") || C.emptyState("Keine Karten", "Drücke auf + und erstelle Karten.")}
       </section>
       <button class="floating-create-button" id="toggle-card-create" type="button">+</button>
     `;
   };
 
-const askStudyUpAI = async (message, attachment) => {
-  const response = await fetch("/api/chat", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      message: message || attachment || "Help me with homework",
-      attachmentName: attachment || ""
-    })
-  });
+  const renderMistakes = () => {
+    const filter = state.ui.mistakeFilter || "open";
+    const mistakes = state.mistakes.filter((mistake) => {
+      if (filter === "fixed") return mistake.reviewStatus === "fixed";
+      if (filter === "all") return true;
+      return mistake.reviewStatus !== "fixed";
+    });
+    return `
+      <section class="mistake-page">
+        <div class="mistake-header">
+          <div>
+            <span class="eyebrow">Coach</span>
+            <h1>Fehlerbank</h1>
+          </div>
+          <div class="coach-action-row">
+            <button class="primary-button toggle-mistake-form" type="button">+ Fehler hinzufügen</button>
+            <a class="secondary-button" href="#cards">Karten lernen</a>
+          </div>
+        </div>
+        <form class="mistake-add-form ${state.ui.showMistakeForm ? "show" : ""}" id="mistake-form">
+          <label>Fach<input name="subject" required placeholder="z. B. Mathe" /></label>
+          <label>Thema<input name="topic" placeholder="z. B. Klammern" /></label>
+          <label>Aufgabe / Frage<textarea name="question" required rows="3"></textarea></label>
+          <label>Meine falsche Antwort<textarea name="userAnswer" rows="2"></textarea></label>
+          <label>Richtige Antwort<textarea name="correctAnswer" rows="2"></textarea></label>
+          <label>Erklärung<textarea name="explanation" rows="3"></textarea></label>
+          <div class="coach-action-row">
+            <button class="primary-button" type="submit">Fehler speichern</button>
+            <button class="secondary-button cancel-mistake-form" type="button">Abbrechen</button>
+          </div>
+        </form>
+        <div class="mistake-stats">
+          <article><span>Offen</span><strong>${openMistakes().length}</strong></article>
+          <article><span>Behoben</span><strong>${state.mistakes.filter((item) => item.reviewStatus === "fixed").length}</strong></article>
+        </div>
+        <div class="segmented-actions">
+          ${["open", "all", "fixed"].map((item) => `<button class="mistake-filter ${filter === item ? "active" : ""}" data-filter="${item}" type="button">${item === "open" ? "Offen" : item === "fixed" ? "Behoben" : "Alle"}</button>`).join("")}
+        </div>
+        <section class="mistake-list">
+          ${mistakes.map((mistake) => `
+            <article class="mistake-card ${mistake.reviewStatus === "fixed" ? "fixed" : ""}">
+              <div class="mistake-card-top">
+                <strong>${C.escapeHtml(mistake.subject)}</strong>
+                <span>${C.escapeHtml(mistake.source)} - ${formatDate(mistake.createdDate)}</span>
+              </div>
+              <h2>${C.escapeHtml(mistake.question)}</h2>
+              <dl>
+                ${mistake.userAnswer ? `<div><dt>Deine Antwort</dt><dd>${C.escapeHtml(mistake.userAnswer)}</dd></div>` : ""}
+                ${mistake.correctAnswer ? `<div><dt>Richtig</dt><dd>${C.escapeHtml(mistake.correctAnswer)}</dd></div>` : ""}
+                ${mistake.explanation ? `<div><dt>Erklärung</dt><dd>${C.escapeHtml(mistake.explanation)}</dd></div>` : ""}
+              </dl>
+              <button class="${mistake.reviewStatus === "fixed" ? "secondary-button reopen-mistake" : "primary-button fix-mistake"}" data-id="${mistake.id}" type="button">${mistake.reviewStatus === "fixed" ? "Wieder öffnen" : "Als behoben markieren"}</button>
+            </article>
+          `).join("") || C.emptyState("Noch keine Fehler", "Wenn du Karten mit Nochmal/Schwer bewertest oder KI-Antworten speicherst, entsteht hier deine persönliche Fehlerbank.")}
+        </section>
+      </section>
+    `;
+  };
 
-  const data = await response.json();
+  const translationDictionary = {
+    bonjour: "hallo / guten Tag",
+    "au revoir": "auf Wiedersehen",
+    famille: "Familie",
+    "la famille": "die Familie",
+    maison: "Haus",
+    school: "Schule",
+    dog: "Hund",
+    cat: "Katze",
+    apple: "Apfel",
+    hello: "hallo",
+    danke: "merci / thank you"
+  };
 
-  if (!response.ok) {
-    throw new Error(data.error || "AI request failed");
-  }
+  const extractTranslationTerm = (message) => message
+    .replace(/übersetze|uebersetze|translate|was heißt|was heisst|auf deutsch|in deutsch|ins deutsche|bitte/gi, "")
+    .replace(/[?:!."]/g, "")
+    .trim();
 
-  return data.answer || "Sorry, I could not make an answer.";
-};
+  const botAnswer = (message, inputKind = "Text") => {
+    const raw = String(message || "").trim();
+    const lower = raw.toLowerCase();
+    if (inputKind === "Foto") return "Ich sehe dein Foto als Aufgabe. Schreibe mir kurz, welche Stelle unklar ist, dann führe ich dich Schritt für Schritt durch den ersten Ansatz.";
+    if (["übersetze", "uebersetze", "translate", "was heißt", "was heisst", "auf deutsch", "ins deutsche"].some((word) => lower.includes(word))) {
+      const term = extractTranslationTerm(raw).toLowerCase();
+      const translated = translationDictionary[term];
+      return translated ? `${term} heißt: ${translated}.` : `Ich würde das als Übersetzungsfrage behandeln. Schreib mir bitte das einzelne Wort oder den Satz ohne Zusatztext, dann gebe ich dir die passende Übersetzung.`;
+    }
+    if (/[0-9]\s*[\+\-\*x·:\/]\s*[0-9]|\([^)]*[\+\-\*x·:\/][^)]*\)/.test(lower) || ["mathe", "formel", "funktion", "gleichung", "rechne"].some((word) => lower.includes(word))) {
+      const bracket = raw.match(/\(([^()]+)\)/);
+      if (bracket) return `Bei Klammern kommt zuerst die Klammer. Dein erster Schritt ist also: ${bracket[1]}. Rechne diesen Teil aus und setze das Ergebnis danach wieder in die Aufgabe ein.`;
+      return "Ich helfe dir beim ersten Schritt: Markiere zuerst die Rechenart mit der höchsten Priorität. Punktrechnung vor Strichrechnung, Klammern zuerst. Was würdest du als erstes ausrechnen?";
+    }
+    if (["lös", "lösung", "antwort", "fertig"].some((word) => lower.includes(word))) return "Ich gebe dir nicht einfach nur eine fertige Lösung. Zeig mir kurz deinen Ansatz, dann gebe ich dir den nächsten Hinweis.";
+    return `Kurz erklärt: ${raw || "Diese Frage"} kann ich dir beantworten. Wenn es eine Aufgabe ist, zerlegen wir sie zuerst in: Was ist gegeben? Was wird gesucht? Welcher erste Schritt passt dazu?`;
+  };
+
+  const askStudyUpAI = async (message, attachment) => {
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: message || attachment || "Hilf mir beim Lernen", attachmentName: attachment || "" })
+      });
+      const raw = await response.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch (error) {
+        throw new Error(raw || "KI-Antwort war kein JSON");
+      }
+      if (!response.ok) throw new Error(data.error || "KI-Anfrage fehlgeschlagen");
+      state.ui.aiOfflineMode = Boolean(data.offline);
+      return data.answer || botAnswer(message || attachment, attachment ? "Foto" : "Text");
+    } catch (error) {
+      console.warn("StudyUp KI nutzt lokale Antwort.", error);
+      state.ui.aiOfflineMode = true;
+      return `${botAnswer(message || attachment, attachment ? "Foto" : "Text")}\n\nHinweis: Die echte KI-Route ist lokal gerade nicht verbunden, deshalb nutze ich eine sichere Offline-Antwort.`;
+    }
+  };
+
+  const lastUserMessageBefore = (messageId) => {
+    const index = state.chat.findIndex((message) => message.id === messageId);
+    return [...state.chat.slice(0, index)].reverse().find((message) => message.role === "user")?.text || "KI-Frage";
+  };
+
   const renderBot = () => {
     const messages = state.chat.length ? state.chat : [{ id: "intro", role: "bot", text: "Stell deine Frage. Ich helfe dir Schritt für Schritt, ohne dir einfach die fertige Lösung zu geben." }];
+    const actions = [
+      ["Erkläre das", "Erkläre mir das Schritt für Schritt: "],
+      ["Frag mich ab", "Frag mich dazu ab: "],
+      ["Antwort prüfen", "Prüfe meine Antwort und gib mir Hinweise: "],
+      ["Karten erstellen", "Mache daraus Karteikarten: "],
+      ["Lernplan machen", "Mache daraus einen Lernplan: "]
+    ];
     return `
       <section class="ai-full-page">
-        <h1>StudyUp AI</h1>
+        <h1>StudyUp KI</h1>
+        <div class="ai-status-pill ${state.ui.aiOfflineMode ? "offline" : "online"}">${state.ui.aiOfflineMode ? "Offline-Demo-Modus" : "Online KI aktiv"}</div>
         <section class="ai-window">
           <div class="ai-output">
-            ${messages.map((msg) => `<article class="message ${msg.role === "user" ? "user" : "bot"}"><p>${C.escapeHtml(msg.text)}</p></article>`).join("")}
+            ${messages.map((msg) => `<article class="message ${msg.role === "user" ? "user" : "bot"}"><p>${C.escapeHtml(msg.text)}</p>${msg.role === "bot" && msg.id !== "intro" ? `<div class="message-actions"><button class="save-ai-flashcards" data-id="${msg.id}" type="button">Als Karten</button><button class="save-ai-mistake" data-id="${msg.id}" type="button">Als Fehler</button><button class="save-ai-task" data-id="${msg.id}" type="button">Als Aufgabe</button></div>` : ""}</article>`).join("")}
           </div>
           ${state.ui.chatAttachmentName ? `<div class="attachment-pill">${C.icon("camera")} ${C.escapeHtml(state.ui.chatAttachmentName)}</div>` : ""}
+          <div class="ai-quick-actions">
+            ${actions.map(([label, prompt]) => `<button class="ai-quick-action" data-prompt="${C.escapeHtml(prompt)}" type="button">${C.escapeHtml(label)}</button>`).join("")}
+          </div>
           <form id="chat-form" class="ai-full-input">
-            <textarea id="chat-input" name="message" placeholder="Frag StudyUp AI"></textarea>
+            <textarea id="chat-input" name="message" placeholder="Frag StudyUp KI"></textarea>
             <div class="ai-input-tools">
-              <label class="tool-button">${C.icon("camera")}<input id="ai-photo-input" type="file" accept="image/*" capture="environment" /></label>
-              <button class="tool-button voice-input" type="button">${C.icon("mic")}</button>
+              <label class="tool-button" title="Fotoanalyse kommt bald">${C.icon("camera")}<input id="ai-photo-input" type="file" accept="image/*" capture="environment" /></label>
+              <button class="tool-button voice-input" type="button" title="Mündlicher Input als Textnotiz">${C.icon("mic")}</button>
               <button class="primary-button" type="submit">${C.icon("send")} Senden</button>
             </div>
           </form>
@@ -848,181 +1031,91 @@ const askStudyUpAI = async (message, attachment) => {
     `;
   };
 
-  const renderPremium = () => {
-    const plan = currentPlan();
-    const lang = String(state.settings.language || "en-US").slice(0, 2);
-    const premiumText = lang === "de" ? {
-      title: "StudyUp Pläne",
-      planWord: "Plan",
-      headline: "Free, Plus oder Pro",
-      intro: "Free hilft dir beim Organisieren. Plus hilft dir, smarter zu lernen. Pro hilft dir, dich wie ein Top-Schüler auf Prüfungen vorzubereiten.",
-      freePosition: "Organisiert starten",
-      plusPosition: "Smarter lernen",
-      proPosition: "Wie ein Top-Schüler vorbereiten",
-      month: "/ Monat",
-      badge: "Am beliebtesten",
-      currentPlan: "Aktueller Plan",
-      included: "Enthalten",
-      plusIncluded: "In Pro enthalten",
-      plusActive: "Plus aktiv",
-      proActive: "Pro aktiv",
-      upgradePlus: "Auf Plus wechseln",
-      upgradePro: "Auf Pro wechseln",
-      customKicker: "Plus und Pro",
-      customTitle: "Eigene Designs",
-      proKicker: "Nur Pro",
-      proTitle: "Erweiterte Tools",
-      analytics: "Erweiterte Analysen",
-      analyticsText: "Erkenne Trends, bevor Noten fallen.",
-      exportCards: "Karteikarten exportieren",
-      exportText: "Lerne deine Sets auch außerhalb von StudyUp.",
-      examPrep: "Prüfungsvorbereitung",
-      examPrepText: "Schwierige Karten, Prüfungsmodus und Pro-Styles.",
-      features: {
-        free: [
-          "Notenübersicht",
-          "Notendurchschnitt berechnen",
-          "Einfacher Planer/Kalender",
-          "Hausaufgaben und Prüfungen verfolgen",
-          "3 Karteikarten-Stapel",
-          "50 persönliche Karten",
-          "10 AI-Fragen/Monat",
-          "Einfache Warnung bei schwachen Fächern",
-          "Einfache Lern-Erinnerungen",
-          "2 Basis-Designs"
-        ],
-        plus: [
-          "Alles aus Free",
-          "300 AI-Fragen/Monat",
-          "AI-Karteikarten-Generator",
-          "AI-Quiz-Generator",
-          "Smarte Lernpläne",
-          "Alle empfohlenen Karten-Stapel",
-          "Unbegrenzte persönliche Karteikarten",
-          "Smarte Erinnerungen",
-          "Wöchentlicher Lernbericht",
-          "Eigene Designs",
-          "Smarte Erkennung schwacher Fächer"
-        ],
-        pro: [
-          "Alles aus Plus",
-          "1.000 AI-Fragen/Monat",
-          "300 AI-Karteikarten-Generierungen/Monat",
-          "30 Foto-zu-Karteikarten-Scans/Monat",
-          "Erweiterte Analysen",
-          "Erweiterte Prüfungsvorbereitung",
-          "Modus für schwierige Karten",
-          "Karteikarten exportieren",
-          "Früher Zugang zu neuen Features",
-          "Pro-Styles und Designs"
-        ]
-      }
-    } : {
-      title: "StudyUp Plans",
-      planWord: "plan",
-      headline: "Free, Plus or Pro",
-      intro: "Free helps you get organized. Plus helps you study smarter. Pro helps you prepare like a top student.",
-      freePosition: "Get organized",
-      plusPosition: "Study smarter",
-      proPosition: "Prepare like a top student",
-      month: "/ month",
-      badge: "Most popular",
-      currentPlan: "Current plan",
-      included: "Included",
-      plusIncluded: "Included in Pro",
-      plusActive: "Plus active",
-      proActive: "Pro active",
-      upgradePlus: "Upgrade to Plus",
-      upgradePro: "Upgrade to Pro",
-      customKicker: "Plus and Pro",
-      customTitle: "Custom themes",
-      proKicker: "Pro only",
-      proTitle: "Advanced tools",
-      analytics: "Advanced analytics",
-      analyticsText: "See trends before grades drop.",
-      exportCards: "Export flashcards",
-      exportText: "Prepare sets outside StudyUp.",
-      examPrep: "Exam preparation",
-      examPrepText: "Hard-card review, exam mode and Pro styles.",
-      features: {
-        free: [
-          "Grades tracker",
-          "Grade average calculator",
-          "Basic planner/calendar",
-          "Homework and test tracking",
-          "3 flashcard decks",
-          "50 personal cards",
-          "10 AI questions/month",
-          "Basic weak subject warning",
-          "Basic study reminders",
-          "2 basic themes"
-        ],
-        plus: [
-          "Everything in Free",
-          "300 AI questions/month",
-          "AI flashcard generator",
-          "AI quiz generator",
-          "Smart study plans",
-          "Full recommended card decks",
-          "Unlimited personal flashcards",
-          "Smart reminders",
-          "Weekly study report",
-          "Custom themes",
-          "Smart weak subject detection"
-        ],
-        pro: [
-          "Everything in Plus",
-          "1,000 AI questions/month",
-          "300 AI flashcard generations/month",
-          "30 photo-to-flashcard scans/month",
-          "Advanced analytics",
-          "Advanced exam preparation",
-          "Hard-card review mode",
-          "Export flashcards",
-          "Early access to new features",
-          "Pro styles/themes"
-        ]
-      }
-    };
-    const list = (items) => `<ul>${items.map((item) => `<li>${C.escapeHtml(item)}</li>`).join("")}</ul>`;
-    const freeButton = plan === "free" ? premiumText.currentPlan : premiumText.included;
-    const plusButton = plan === "plus" ? premiumText.plusActive : plan === "pro" ? premiumText.plusIncluded : premiumText.upgradePlus;
-    const proButton = plan === "pro" ? premiumText.proActive : premiumText.upgradePro;
+  const renderPlanCard = ({ id, title, position, price, features, badge, tone }) => {
+    const active = currentPlan() === id;
+    const buttonLabel = id === "free" ? (active ? "Current plan" : "Free included") : active ? `${title} active` : `Upgrade to ${title}`;
     return `
-      ${C.sectionTitle("Premium", premiumText.title)}
-      <section class="pricing-grid premium-grid three-plans">
-        <article class="price-card ${plan === "free" ? "current" : ""}">
-          <div class="price-card-top"><span>${C.escapeHtml(premiumText.freePosition)}</span></div>
-          <h2>Free</h2>
-          <strong>CHF 0</strong>
-          ${list(premiumText.features.free)}
-          <button class="secondary-button plan-button" type="button" disabled>${freeButton}</button>
-        </article>
-        <article class="price-card featured ${plan === "plus" ? "current" : ""}">
-          <div class="price-card-top"><span>${C.escapeHtml(premiumText.plusPosition)}</span><em class="plan-badge">${C.escapeHtml(premiumText.badge)}</em></div>
-          <h2>Plus</h2>
-          <strong>CHF 4.90 <small>${C.escapeHtml(premiumText.month)}</small></strong>
-          ${list(premiumText.features.plus)}
-          <button class="primary-button activate-plan" data-plan="plus" type="button" ${plan === "plus" || plan === "pro" ? "disabled" : ""}>${plusButton}</button>
-        </article>
-        <article class="price-card pro ${plan === "pro" ? "current" : ""}">
-          <div class="price-card-top"><span>${C.escapeHtml(premiumText.proPosition)}</span></div>
-          <h2>Pro</h2>
-          <strong>CHF 7.90 <small>${C.escapeHtml(premiumText.month)}</small></strong>
-          ${list(premiumText.features.pro)}
-          <button class="secondary-button activate-plan" data-plan="pro" type="button" ${plan === "pro" ? "disabled" : ""}>${proButton}</button>
-        </article>
-      </section>
-      <section class="panel pro-tools-panel ${isPro() ? "" : "locked"}">
-        <div class="panel-header"><div><span>${C.escapeHtml(premiumText.proKicker)}</span><h2>${C.escapeHtml(premiumText.proTitle)}</h2></div>${isPro() ? C.icon("chart") : C.icon("lock")}</div>
-        <div class="pro-tool-grid">
-          <article><strong>${C.escapeHtml(premiumText.analytics)}</strong><span>${C.escapeHtml(premiumText.analyticsText)}</span></article>
-          <article><strong>${C.escapeHtml(premiumText.exportCards)}</strong><span>${C.escapeHtml(premiumText.exportText)}</span></article>
-          <article><strong>${C.escapeHtml(premiumText.examPrep)}</strong><span>${C.escapeHtml(premiumText.examPrepText)}</span></article>
-        </div>
-      </section>
+      <article class="price-card plan-card ${id === "plus" ? "featured" : ""} ${tone || ""}">
+        ${badge ? `<em class="plan-badge">${C.escapeHtml(badge)}</em>` : ""}
+        <span>${C.escapeHtml(position)}</span>
+        <h2>${C.escapeHtml(title)}</h2>
+        <strong>${C.escapeHtml(price)}</strong>
+        <ul>${features.map((feature) => `<li>${C.escapeHtml(feature)}</li>`).join("")}</ul>
+        <button class="${id === "plus" && !active ? "primary-button" : "secondary-button"} activate-plan" data-plan="${id}" type="button" ${id === "free" ? "disabled" : ""}>${C.escapeHtml(buttonLabel)}</button>
+      </article>
     `;
   };
+
+  const renderPremium = () => `
+    ${C.sectionTitle("Premium", "StudyUp Pläne")}
+    <section class="panel premium-intro">
+      <p>Free helps you get organized. Plus helps you study smarter. Pro helps you prepare like a top student.</p>
+      <small>Demo-Aktivierung: Noch keine echte Zahlung. Die Buttons ändern den lokalen Plan zum Testen.</small>
+    </section>
+    <section class="pricing-grid premium-grid three-plans">
+      ${renderPlanCard({
+        id: "free",
+        title: "Free",
+        position: "Get organized",
+        price: "CHF 0",
+        features: ["Grades tracker", "Grade average calculator", "Basic planner/calendar", "Homework and test tracking", "3 flashcard decks", "50 personal cards", "10 KI questions/month", "Basic weak subject warning", "Basic study reminders", "2 basic themes"]
+      })}
+      ${renderPlanCard({
+        id: "plus",
+        title: "Plus",
+        position: "Study smarter",
+        price: "CHF 4.90/month",
+        badge: "Recommended",
+        features: ["Everything in Free", "300 KI questions/month", "KI flashcard generator", "KI quiz generator", "Smart study plans", "Full recommended card decks", "Unlimited personal flashcards", "Smart reminders", "Weekly study report", "Custom themes", "Smart weak subject detection"]
+      })}
+      ${renderPlanCard({
+        id: "pro",
+        title: "Pro",
+        position: "Prepare like a top student",
+        price: "CHF 7.90/month",
+        tone: "pro-card",
+        features: ["Everything in Plus", "1,000 KI questions/month", "300 KI flashcard generations/month", "30 photo-to-flashcard scans/month", "Advanced analytics", "Advanced exam preparation", "Hard-card review mode", "Export flashcards", "Early access to new features", "Pro styles/themes"]
+      })}
+    </section>
+    <section class="panel customize-panel ${isPlus() ? "" : "locked"}">
+      <div class="panel-header"><div><span>Plus und Pro</span><h2>Custom themes</h2></div>${isPlus() ? C.icon("palette") : C.icon("lock")}</div>
+      <p class="panel-note">${isPlus() ? "Dein Plan kann den Look der App anpassen." : "Custom themes sind in Plus und Pro enthalten."}</p>
+      <div class="custom-grid">
+        <label>Akzentfarbe<select name="accent" class="setting-control" ${isPlus() ? "" : "disabled"}><option value="blue" ${state.settings.accent === "blue" ? "selected" : ""}>Blau</option><option value="green" ${state.settings.accent === "green" ? "selected" : ""}>Grün</option><option value="violet" ${state.settings.accent === "violet" ? "selected" : ""}>Violett</option><option value="coral" ${state.settings.accent === "coral" ? "selected" : ""}>Koralle</option></select></label>
+        <label>Kartenstil<select name="cardStyle" class="setting-control" ${isPlus() ? "" : "disabled"}><option value="stacked" ${state.settings.cardStyle === "stacked" ? "selected" : ""}>Gestapelt</option><option value="clean" ${state.settings.cardStyle === "clean" ? "selected" : ""}>Clean</option></select></label>
+      </div>
+    </section>
+    <section class="panel pro-feature-panel ${isPro() ? "" : "locked"}">
+      <div class="panel-header"><div><span>Pro only</span><h2>Analytics, export and exam prep</h2></div>${isPro() ? C.icon("spark") : C.icon("lock")}</div>
+      <p class="panel-note">Advanced analytics, flashcard export, hard-card review and Pro styles are reserved for Pro. Photo-to-flashcards is planned as a Pro feature.</p>
+    </section>
+  `;
+
+  const renderSettings = () => `
+    <section class="settings-page">
+      <div class="mistake-header">
+        <div><span class="eyebrow">Profil</span><h1>Einstellungen</h1></div>
+        <a class="secondary-button" href="#dashboard">Zurück</a>
+      </div>
+      <section class="panel">
+        <div class="panel-header"><div><span>Konto</span><h2>${C.escapeHtml(state.user.name || "StudyUp Nutzer")}</h2></div>${C.icon("user")}</div>
+        <p class="panel-note">StudyUp ist in dieser Version lokal-first. Deine Daten werden aktuell im Browser auf diesem Gerät gespeichert. Eine echte Cloud-Anmeldung oder Zahlung ist noch nicht aktiv.</p>
+        <div class="settings-grid">
+          <article><span>Region</span><strong>${C.escapeHtml(currentSystem().name)}</strong></article>
+          <article><span>Plan</span><strong>${C.escapeHtml(planLabel(currentPlan()))}</strong></article>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-header"><div><span>Daten</span><h2>Lokale Daten kontrollieren</h2></div>${C.icon("lock")}</div>
+        <div class="button-row settings-actions">
+          <button class="secondary-button export-data" type="button">Daten als JSON exportieren</button>
+          <button class="secondary-button load-demo-data" type="button">Demo-Daten ausprobieren</button>
+          <button class="secondary-button danger-action delete-local-data" type="button">${C.icon("trash")} Alle lokalen Daten löschen</button>
+          <button class="secondary-button settings-logout" type="button">Ausloggen</button>
+        </div>
+      </section>
+    </section>
+  `;
 
   const render = () => {
     ensureCollections();
@@ -1030,7 +1123,7 @@ const askStudyUpAI = async (message, attachment) => {
     const route = getRoute();
     if (route !== location.hash.replace("#", "") && location.hash) location.hash = route;
     setActiveNav(route);
-    const views = { dashboard: renderDashboard, grades: renderGrades, planner: renderPlanner, cards: renderCards, bot: renderBot, premium: renderPremium };
+    const views = { dashboard: renderTodayDashboard, grades: renderGrades, planner: renderPlanner, cards: renderCards, mistakes: renderMistakes, session: renderStudySession, bot: renderBot, premium: renderPremium, settings: renderSettings };
     app.classList.remove("page-enter");
     app.innerHTML = state.user.loggedIn ? views[route]() : renderOnboarding();
     requestAnimationFrame(() => app.classList.add("page-enter"));
@@ -1043,13 +1136,110 @@ const askStudyUpAI = async (message, attachment) => {
       event.preventDefault();
       const data = formData(event.currentTarget);
       const system = state.gradeSystems.find((item) => item.id === data.gradeSystem) || currentSystem();
-      state.user = { loggedIn: true, name: data.name, email: data.email, region: data.gradeSystem };
+      state.user = { loggedIn: true, name: data.name, email: data.email || "", region: data.gradeSystem };
       state.settings.gradeSystem = system.id;
       state.settings.language = data.language || system.language;
       save();
       render();
     });
+    document.querySelectorAll(".load-demo-data, #demo-data-button").forEach((button) => button.addEventListener("click", () => {
+      applyDemoData();
+      save();
+      location.hash = "#dashboard";
+      render();
+    }));
+    document.querySelector(".export-data")?.addEventListener("click", () => {
+      const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `studyup-data-${todayIso()}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    });
+    document.querySelector(".delete-local-data")?.addEventListener("click", () => {
+      if (!confirm("Alle lokalen StudyUp-Daten auf diesem Gerät löschen?")) return;
+      localStorage.removeItem("studyup-state-v6");
+      state = window.StudyUpStorage.load();
+      location.hash = "#dashboard";
+      render();
+    });
+    document.querySelector(".settings-logout")?.addEventListener("click", () => {
+      state.user.loggedIn = false;
+      state.ui.cardCreateOpen = false;
+      save();
+      location.hash = "#dashboard";
+      render();
+    });
     document.querySelectorAll(".notify-now").forEach((button) => button.addEventListener("click", requestNotifications));
+    document.querySelector(".start-study-session")?.addEventListener("click", () => {
+      state.ui.studySessionStep = 0;
+      state.ui.studySessionCardIndex = 0;
+      location.hash = "#session";
+      pushNotification("Lerneinheit gestartet", "StudyUp führt dich durch Fehler, Karten und Mini-Check.");
+      save();
+      render();
+    });
+
+    if (route === "session") {
+      document.querySelectorAll(".study-flashcard").forEach((card) => card.addEventListener("click", () => {
+        card.classList.toggle("flipped");
+      }));
+      document.querySelector(".session-prev-step")?.addEventListener("click", () => {
+        state.ui.studySessionStep = Math.max(0, Number(state.ui.studySessionStep || 0) - 1);
+        save();
+        render();
+      });
+      document.querySelector(".session-next-step")?.addEventListener("click", () => {
+        state.ui.studySessionStep = Math.min(3, Number(state.ui.studySessionStep || 0) + 1);
+        save();
+        render();
+      });
+      document.querySelectorAll(".session-fix-mistake").forEach((button) => button.addEventListener("click", () => {
+        const mistake = state.mistakes.find((item) => item.id === button.dataset.id);
+        if (mistake) mistake.reviewStatus = "fixed";
+        save();
+        render();
+      }));
+      document.querySelector(".session-card-prev")?.addEventListener("click", () => {
+        state.ui.studySessionCardIndex = Math.max(0, Number(state.ui.studySessionCardIndex || 0) - 1);
+        save();
+        render();
+      });
+      document.querySelector(".session-card-next")?.addEventListener("click", () => {
+        state.ui.studySessionCardIndex = Math.min(sessionCards().length - 1, Number(state.ui.studySessionCardIndex || 0) + 1);
+        save();
+        render();
+      });
+      document.querySelectorAll(".session-rate-card").forEach((button) => button.addEventListener("click", () => {
+        const cards = sessionCards();
+        const index = Math.min(Math.max(0, Number(state.ui.studySessionCardIndex || 0)), Math.max(0, cards.length - 1));
+        const card = cards[index];
+        if (card) scheduleCardReview(card, button.dataset.rating);
+        state.ui.studySessionCardIndex = Math.min(index + 1, Math.max(0, cards.length - 1));
+        save();
+        render();
+      }));
+      document.querySelector("#session-check-form")?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const data = formData(event.currentTarget);
+        if (data.summary?.trim()) {
+          state.studyTasks.unshift({ id: uid("task"), subject: "Mini-Check", title: data.summary.trim().slice(0, 90), date: todayIso(), done: true });
+        }
+        state.ui.studySessionStep = 3;
+        save();
+        render();
+      });
+      document.querySelector(".complete-study-session")?.addEventListener("click", () => {
+        updateStreak();
+        state.ui.studySessionStep = 0;
+        state.ui.studySessionCardIndex = 0;
+        pushNotification("Session abgeschlossen", "Deine Lernserie wurde aktualisiert.");
+        save();
+        location.hash = "#dashboard";
+        render();
+      });
+    }
 
     if (route === "grades") {
       const selectedSubject = gradeSubjectById(state.ui.selectedGradeSubject);
@@ -1069,49 +1259,20 @@ const askStudyUpAI = async (message, attachment) => {
         save();
         render();
       });
-      document.querySelector(".close-subject-form")?.addEventListener("click", () => {
-        state.ui.showSubjectForm = false;
-        save();
-        render();
-      });
       document.querySelectorAll(".grade-folder").forEach((button) => button.addEventListener("click", () => {
-        const row = button.closest(".subject-swipe-row");
-        if (row?.classList.contains("show-actions")) return;
         state.ui.selectedGradeSubject = button.dataset.id;
         state.ui.selectedPartialGroup = null;
         state.ui.showSubjectForm = false;
         state.ui.showGradeEntryForm = false;
         state.ui.showTargetGradeForm = false;
         state.ui.showPartialEntryForm = false;
-        state.ui.editingGradeId = "";
-        state.ui.editingPartialGradeId = "";
         save();
         render();
       }));
-      document.querySelectorAll(".subject-swipe-row").forEach((row) => {
-        let startX = 0;
-        let startY = 0;
-        row.addEventListener("pointerdown", (event) => {
-          startX = event.clientX || 0;
-          startY = event.clientY || 0;
-        }, { passive: true });
-        row.addEventListener("pointerup", (event) => {
-          const endX = event.clientX || startX;
-          const endY = event.clientY || startY;
-          const deltaX = startX - endX;
-          const deltaY = Math.abs(startY - endY);
-          if (deltaX > 34 && deltaY < 40) row.classList.add("show-actions");
-          if (deltaX < -24) row.classList.remove("show-actions");
-        }, { passive: true });
-      });
       document.querySelectorAll(".delete-subject").forEach((button) => button.addEventListener("click", (event) => {
         event.stopPropagation();
-        const id = button.dataset.id;
-        state.subjects = state.subjects.filter((subject) => subject.id !== id);
-        if (state.ui.selectedGradeSubject === id) {
-          state.ui.selectedGradeSubject = null;
-          state.ui.selectedPartialGroup = null;
-        }
+        state.subjects = state.subjects.filter((subject) => subject.id !== button.dataset.id);
+        if (state.ui.selectedGradeSubject === button.dataset.id) state.ui.selectedGradeSubject = null;
         save();
         render();
       }));
@@ -1121,27 +1282,17 @@ const askStudyUpAI = async (message, attachment) => {
         state.ui.showGradeEntryForm = false;
         state.ui.showTargetGradeForm = false;
         state.ui.showPartialEntryForm = false;
-        state.ui.editingGradeId = "";
-        state.ui.editingPartialGradeId = "";
         save();
         render();
       });
       document.querySelector(".back-to-subject-detail")?.addEventListener("click", () => {
         state.ui.selectedPartialGroup = null;
         state.ui.showPartialEntryForm = false;
-        state.ui.editingPartialGradeId = "";
         save();
         render();
       });
       document.querySelector("#toggle-grade-entry-form")?.addEventListener("click", () => {
-        state.ui.showGradeEntryForm = true;
-        state.ui.editingGradeId = "";
-        save();
-        render();
-      });
-      document.querySelector(".close-grade-entry-form")?.addEventListener("click", () => {
-        state.ui.showGradeEntryForm = false;
-        state.ui.editingGradeId = "";
+        state.ui.showGradeEntryForm = !state.ui.showGradeEntryForm;
         save();
         render();
       });
@@ -1163,53 +1314,24 @@ const askStudyUpAI = async (message, attachment) => {
         const data = formData(event.currentTarget);
         const subject = gradeSubjectById(state.ui.selectedGradeSubject);
         if (subject) {
-          const editing = gradeEntryById(subject, state.ui.editingGradeId);
-          if (editing) {
-            editing.title = data.title;
-            if (editing.type !== "partial" && data.value !== "") editing.value = Number(data.value);
-          } else if (data.isPartial === "partial") {
-            subject.grades.push({ id: uid("partial"), type: "partial", title: data.title, date: todayIso(), partialGrades: [] });
+          if (data.isPartial === "partial") {
+            subject.grades.push({ id: uid("partial"), type: "partial", title: data.title, date: data.date || todayIso(), partialGrades: [] });
           } else if (data.value !== "") {
-            subject.grades.push({ id: uid("grade"), type: "exam", title: data.title, date: todayIso(), value: Number(data.value) });
+            subject.grades.push({ id: uid("grade"), type: "exam", title: data.title, date: data.date || todayIso(), value: Number(data.value) });
           }
         }
         state.ui.showGradeEntryForm = false;
-        state.ui.editingGradeId = "";
         save();
         render();
       });
-      document.querySelector(".delete-editing-grade")?.addEventListener("click", () => {
-        const subject = gradeSubjectById(state.ui.selectedGradeSubject);
-        if (!subject || !state.ui.editingGradeId) return;
-        subject.grades = subject.grades.filter((grade) => grade.id !== state.ui.editingGradeId);
-        if (state.ui.selectedPartialGroup === state.ui.editingGradeId) state.ui.selectedPartialGroup = null;
-        state.ui.showGradeEntryForm = false;
-        state.ui.editingGradeId = "";
-        save();
-        render();
-      });
-      document.querySelectorAll(".open-grade-edit").forEach((button) => button.addEventListener("click", () => {
-        state.ui.editingGradeId = button.dataset.id;
-        state.ui.showGradeEntryForm = true;
-        save();
-        render();
-      }));
       document.querySelectorAll(".open-partial-folder").forEach((button) => button.addEventListener("click", () => {
         state.ui.selectedPartialGroup = button.dataset.id;
         state.ui.showPartialEntryForm = false;
-        state.ui.editingPartialGradeId = "";
         save();
         render();
       }));
       document.querySelector("#toggle-partial-entry-form")?.addEventListener("click", () => {
-        state.ui.showPartialEntryForm = true;
-        state.ui.editingPartialGradeId = "";
-        save();
-        render();
-      });
-      document.querySelector(".close-partial-entry-form")?.addEventListener("click", () => {
-        state.ui.showPartialEntryForm = false;
-        state.ui.editingPartialGradeId = "";
+        state.ui.showPartialEntryForm = !state.ui.showPartialEntryForm;
         save();
         render();
       });
@@ -1217,30 +1339,38 @@ const askStudyUpAI = async (message, attachment) => {
         event.preventDefault();
         const data = formData(event.currentTarget);
         if (selectedPartial?.type === "partial") {
-          const editing = selectedPartial.partialGrades.find((grade) => grade.id === state.ui.editingPartialGradeId);
-          if (editing) {
-            editing.title = data.title;
-            editing.value = Number(data.value);
-          } else {
-            selectedPartial.partialGrades.push({ id: uid("part"), title: data.title, date: todayIso(), value: Number(data.value) });
-          }
+          selectedPartial.partialGrades.push({ id: uid("part"), title: data.title, date: data.date || todayIso(), value: Number(data.value) });
         }
         state.ui.showPartialEntryForm = false;
-        state.ui.editingPartialGradeId = "";
         save();
         render();
       });
-      document.querySelector(".delete-editing-partial-grade")?.addEventListener("click", () => {
-        if (selectedPartial?.type !== "partial" || !state.ui.editingPartialGradeId) return;
-        selectedPartial.partialGrades = selectedPartial.partialGrades.filter((entry) => entry.id !== state.ui.editingPartialGradeId);
-        state.ui.showPartialEntryForm = false;
-        state.ui.editingPartialGradeId = "";
-        save();
-        render();
-      });
-      document.querySelectorAll(".open-partial-grade-edit").forEach((button) => button.addEventListener("click", () => {
-        state.ui.editingPartialGradeId = button.dataset.id;
-        state.ui.showPartialEntryForm = true;
+      document.querySelectorAll(".rename-grade").forEach((button) => button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const subject = gradeSubjectById(state.ui.selectedGradeSubject);
+        if (!subject) return;
+        const partialId = button.dataset.partial;
+        const grade = partialId ? gradeEntryById(subject, partialId)?.partialGrades.find((entry) => entry.id === button.dataset.grade) : gradeEntryById(subject, button.dataset.grade);
+        if (!grade) return;
+        const nextTitle = prompt("Neuer Name", grade.title);
+        if (nextTitle?.trim()) {
+          grade.title = nextTitle.trim();
+          save();
+          render();
+        }
+      }));
+      document.querySelectorAll(".delete-grade").forEach((button) => button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const subject = gradeSubjectById(state.ui.selectedGradeSubject);
+        if (!subject) return;
+        const partialId = button.dataset.partial;
+        if (partialId) {
+          const partial = gradeEntryById(subject, partialId);
+          if (partial?.partialGrades) partial.partialGrades = partial.partialGrades.filter((entry) => entry.id !== button.dataset.grade);
+        } else {
+          subject.grades = subject.grades.filter((grade) => grade.id !== button.dataset.grade);
+          if (state.ui.selectedPartialGroup === button.dataset.grade) state.ui.selectedPartialGroup = null;
+        }
         save();
         render();
       }));
@@ -1255,6 +1385,14 @@ const askStudyUpAI = async (message, attachment) => {
           if (endX - startX > 34) row.classList.remove("show-actions");
         }, { passive: true });
       });
+      document.querySelector(".create-subject-task")?.addEventListener("click", (event) => {
+        const subject = event.currentTarget.dataset.subject || selectedSubject?.name || "Lernen";
+        state.studyTasks.unshift({ id: uid("task"), subject, title: `${subject} 15 Minuten üben`, date: todayIso(), done: false });
+        pushNotification("Lerntermin geplant", `${subject}: 15 Minuten üben`);
+        save();
+        location.hash = "#dashboard";
+        render();
+      });
     }
 
     if (route === "planner") {
@@ -1263,29 +1401,21 @@ const askStudyUpAI = async (message, attachment) => {
         save();
         render();
       });
-      document.querySelectorAll(".calendar-month-step").forEach((button) => button.addEventListener("click", () => {
-        state.ui.calendarMonthOffset = Number(state.ui.calendarMonthOffset || 0) + Number(button.dataset.offset || 0);
-        save();
-        render();
-      }));
       document.querySelector("#event-form")?.addEventListener("submit", (event) => {
         event.preventDefault();
         const data = formData(event.currentTarget);
-        const subject = String(data.subject || "").trim();
-        const title = String(data.title || "").trim();
-        const date = data.date || todayIso();
-        if (!subject || !title || !date) return;
         if (data.kind === "exam") {
-          state.exams.unshift({ id: uid("exam"), subject, title, date, targetGrade: "", minutesPerDay: 25, topics: [title] });
-          if (data.autoPlan === "yes") state.planEvents.unshift(...createExamWeekPlan({ subject, title, date }));
+          state.exams.unshift({ id: uid("exam"), subject: data.subject, title: data.title, date: data.date, targetGrade: "", minutesPerDay: 25, topics: [data.title] });
         } else if (data.kind === "homework") {
-          state.homework.unshift({ id: uid("hw"), subject, title, description: "", dueDate: date, priority: "Mittel", status: "Offen" });
+          state.homework.unshift({ id: uid("hw"), subject: data.subject, title: data.title, description: "", dueDate: data.date, priority: "Mittel", status: "Offen" });
         } else {
-          state.planEvents.unshift({ id: uid("event"), subject, title, date, minutes: 25, type: "Termin", auto: false });
+          state.planEvents.unshift({ id: uid("event"), subject: data.subject, title: data.title, date: data.date, minutes: 25, type: "Termin", auto: false });
+        }
+        if (data.autoPlan === "on") {
+          state.planEvents.unshift(...createAutoPlan({ subject: data.subject, title: data.title, date: data.date, minutes: 25, topics: data.title }));
         }
         state.ui.showEventForm = false;
-        state.ui.calendarMonthOffset = calendarOffsetForDate(date);
-        pushNotification("Eintrag gespeichert", `${subject}: ${title}`);
+        pushNotification("Eintrag gespeichert", `${data.subject}: ${data.title}`);
         save();
         render();
       });
@@ -1295,82 +1425,31 @@ const askStudyUpAI = async (message, attachment) => {
       document.querySelector("#card-search")?.addEventListener("input", (event) => {
         state.ui.cardSearch = event.currentTarget.value;
         save();
+        const cursor = event.currentTarget.selectionStart || state.ui.cardSearch.length;
+        clearTimeout(cardSearchTimer);
+        cardSearchTimer = setTimeout(() => {
+          render();
+          const input = document.querySelector("#card-search");
+          if (input) {
+            input.focus();
+            input.setSelectionRange(cursor, cursor);
+          }
+        }, 220);
       });
-      document.querySelector("#card-search")?.addEventListener("change", () => {
-        render();
-      });
-     document.querySelectorAll(".stack-main").forEach((button) => button.addEventListener("click", () => {
-  const pack = recommendedPack();
-  state.ui.cardStudyOpen = true;
-  state.ui.cardStudyBucket = "";
-  state.ui.cardStudySource = button.dataset.source || "";
-  state.ui.cardStudyIndex = 0;
-  if (button.dataset.stack === "recommended" && pack) {
-    state.ui.cardStudyMode = "pack";
-    state.ui.cardStudyPackId = pack.id;
-  } else {
-    state.ui.cardStudyMode = "personal";
-    state.ui.cardStudyPackId = "";
-  }
-  save();
-  render();
-}));
-      document.querySelectorAll(".deck-count-pill").forEach((button) => button.addEventListener("click", () => {
+      document.querySelectorAll(".quizlet-large-stack").forEach((button) => button.addEventListener("click", () => {
+        state.ui.cardStudyMode = button.dataset.stack;
         state.ui.cardStudyOpen = true;
-        state.ui.cardStudyMode = "bucket";
-        state.ui.cardStudyBucket = button.dataset.bucket || "";
-        state.ui.cardStudySource = button.dataset.source || "";
-        state.ui.cardStudyPackId = button.dataset.pack || "";
+        state.ui.cardStudyIndex = 0;
+        state.ui.selectedCardSubject = button.dataset.stack === "personal" ? "" : state.ui.selectedCardSubject;
+        save();
+        render();
+      }));
+      document.querySelector(".close-study-view")?.addEventListener("click", () => {
+        state.ui.cardStudyOpen = false;
+        state.ui.cardStudyMode = "";
         state.ui.cardStudyIndex = 0;
         save();
         render();
-      }));
-
-document.querySelector("#toggle-card-create")?.addEventListener("click", () => {
-  state.ui.cardCreateOpen = true;
-  state.ui.cardCreateMode = "";
-  save();
-  render();
-});
-
-document.querySelectorAll(".choose-card-mode").forEach((button) => button.addEventListener("click", () => {
-  if (button.dataset.mode === "ai" && !isPlus()) return;
-  state.ui.cardCreateMode = button.dataset.mode;
-  save();
-  render();
-}));
-      document.querySelectorAll(".close-card-create").forEach((button) => button.addEventListener("click", () => {
-        state.ui.cardCreateOpen = false;
-        state.ui.cardCreateMode = "";
-        save();
-        render();
-      }));
-      document.querySelector("#card-form")?.addEventListener("submit", (event) => {
-        event.preventDefault();
-        if (!isPlus() && personalCards().length >= 50) {
-          pushNotification("Free-Limit erreicht", "Free enthält 50 persönliche Karten. Plus und Pro heben dieses Limit auf.");
-          return;
-        }
-        const data = formData(event.currentTarget);
-        state.flashcards.unshift({
-          id: uid("card"),
-          subject: data.subject,
-          title: data.subject,
-          question: data.question,
-          answer: data.answer,
-          difficulty: Number(data.difficulty || 2),
-          reviewCount: 0,
-          source: "private",
-          published: false
-        });
-        state.ui.cardCreateOpen = false;
-        state.ui.cardCreateMode = "";
-        state.ui.selectedCardSubject = data.subject;
-        save();
-        render();
-      });
-      document.querySelector(".study-flashcard")?.addEventListener("click", (event) => {
-        event.currentTarget.classList.toggle("flipped");
       });
       document.querySelector(".study-prev")?.addEventListener("click", () => {
         state.ui.cardStudyIndex = Math.max(0, Number(state.ui.cardStudyIndex || 0) - 1);
@@ -1382,92 +1461,163 @@ document.querySelectorAll(".choose-card-mode").forEach((button) => button.addEve
         save();
         render();
       });
-      document.querySelectorAll(".card-rating-card").forEach((button) => button.addEventListener("click", () => {
+      document.querySelectorAll(".srs-rating").forEach((button) => button.addEventListener("click", () => {
         const cards = activeStudyCards();
-        const index = Math.min(Math.max(Number(state.ui.cardStudyIndex || 0), 0), Math.max(cards.length - 1, 0));
-        rateStudyCard(cards[index], button.dataset.rating);
+        const index = Math.min(Math.max(0, Number(state.ui.cardStudyIndex || 0)), Math.max(0, cards.length - 1));
+        const card = cards[index];
+        if (!card) return;
+        scheduleCardReview(card, button.dataset.rating);
+        state.ui.cardStudyIndex = Math.min(index + 1, Math.max(0, cards.length - 1));
         save();
         render();
       }));
-      document.querySelector(".close-card-study")?.addEventListener("click", () => {
-        state.ui.cardStudyOpen = false;
-        state.ui.cardStudyPackId = "";
-        state.ui.cardStudyIndex = 0;
-        state.ui.cardStudyMode = "pack";
-        state.ui.cardStudyBucket = "";
-        state.ui.cardStudySource = "";
+      document.querySelector("#toggle-card-create")?.addEventListener("click", () => {
+        state.ui.cardCreateOpen = !state.ui.cardCreateOpen;
+        if (!state.ui.cardCreateOpen) state.ui.cardCreateMode = "";
+        save();
+        render();
+      });
+      document.querySelector(".close-card-create")?.addEventListener("click", () => {
+        state.ui.cardCreateOpen = false;
+        state.ui.cardCreateMode = "";
+        save();
+        render();
+      });
+      document.querySelectorAll(".choose-card-mode").forEach((button) => button.addEventListener("click", () => {
+        state.ui.cardCreateMode = button.dataset.mode;
+        save();
+        render();
+      }));
+      document.querySelectorAll(".study-flashcard").forEach((card) => card.addEventListener("click", () => {
+        card.classList.toggle("flipped");
+      }));
+      document.querySelector("#card-form")?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const data = formData(event.currentTarget);
+        state.flashcards.push({ id: uid("card"), subject: data.subject, title: data.subject, question: data.question, answer: data.answer, difficulty: Number(data.difficulty), reviewCount: 0, source: "private", published: false });
+        state.ui.cardCreateOpen = false;
         save();
         render();
       });
       document.querySelector("#photo-card-input")?.addEventListener("change", (event) => {
-        if (!isPlus()) {
-          pushNotification("AI-Karten sind Plus und Pro", "Aktiviere Plus oder Pro, um Karten aus Fotos zu erstellen.");
-          return;
-        }
         const file = event.currentTarget.files?.[0];
         if (!file) return;
-        const subject = document.querySelector("#photo-card-subject")?.value.trim() || "AI Cards";
-        [
-          { question: "Wort 1 aus dem Foto", answer: "Bedeutung prüfen", difficulty: 2 },
-          { question: "Wort 2 aus dem Foto", answer: "Beispielsatz bilden", difficulty: 3 },
-          { question: "Wort 3 aus dem Foto", answer: "Übersetzung wiederholen", difficulty: 2 }
-        ].forEach((card) => state.flashcards.push({ id: uid("card"), subject, title: subject, reviewCount: 0, source: "ai", published: false, imageName: file.name, ...card }));
-        state.ui.cardCreateOpen = false;
-        state.ui.cardCreateMode = "";
-        state.ui.selectedCardSubject = subject;
+        state.ui.lastPhotoName = file.name;
+        pushNotification("Foto-Funktion kommt bald", "StudyUp speichert hier noch keine Karten aus Fotos.");
         save();
         render();
       });
     }
 
-if (route === "bot") {
-  document.querySelector("#ai-photo-input")?.addEventListener("change", (event) => {
-    const file = event.currentTarget.files?.[0];
-    if (!file) return;
-    state.ui.chatAttachmentName = file.name;
-    save();
-    render();
-  });
-
-  document.querySelector(".voice-input")?.addEventListener("click", () => {
-    const input = document.querySelector("#chat-input");
-    input.value = `${input.value} Mündliche Notiz: `.trim();
-    input.focus();
-  });
-
-  document.querySelector("#chat-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-
-    const message = formData(event.currentTarget).message.trim();
-    const attachment = state.ui.chatAttachmentName;
-
-    if (!message && !attachment) return;
-
-    if (state.settings.aiQuestionsUsed >= currentAiLimit()) {
-      state.chat.push({ id: uid("msg"), role: "bot", text: `${planLabel()}-Limit erreicht: ${aiLimitLabel()} sind diesen Monat genutzt.` });
-    } else {
-      state.chat.push({ id: uid("msg"), role: "user", text: `${message || "Foto-Frage"}${attachment ? ` [Foto: ${attachment}]` : ""}` });
-
-      const botMessage = { id: uid("msg"), role: "bot", text: "StudyUp AI denkt …" };
-      state.chat.push(botMessage);
-
-      try {
-        botMessage.text = await askStudyUpAI(message, attachment);
-      } catch (error) {
-        botMessage.text = "AI error: " + error.message;
-      }
-
-      state.settings.aiQuestionsUsed += 1;
+    if (route === "mistakes") {
+      document.querySelector(".toggle-mistake-form")?.addEventListener("click", () => {
+        state.ui.showMistakeForm = !state.ui.showMistakeForm;
+        save();
+        render();
+      });
+      document.querySelector(".cancel-mistake-form")?.addEventListener("click", () => {
+        state.ui.showMistakeForm = false;
+        save();
+        render();
+      });
+      document.querySelector("#mistake-form")?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const data = formData(event.currentTarget);
+        saveMistake({
+          subject: data.subject,
+          topic: data.topic,
+          question: data.question,
+          userAnswer: data.userAnswer,
+          correctAnswer: data.correctAnswer,
+          explanation: data.explanation,
+          source: "Manuell"
+        });
+        state.ui.showMistakeForm = false;
+        save();
+        render();
+      });
+      document.querySelectorAll(".mistake-filter").forEach((button) => button.addEventListener("click", () => {
+        state.ui.mistakeFilter = button.dataset.filter;
+        save();
+        render();
+      }));
+      document.querySelectorAll(".fix-mistake, .reopen-mistake").forEach((button) => button.addEventListener("click", () => {
+        const mistake = state.mistakes.find((item) => item.id === button.dataset.id);
+        if (!mistake) return;
+        mistake.reviewStatus = button.classList.contains("reopen-mistake") ? "open" : "fixed";
+        save();
+        render();
+      }));
     }
 
-    state.ui.chatAttachmentName = "";
-    save();
-    render();
-  });
-}
+    if (route === "bot") {
+      document.querySelector("#ai-photo-input")?.addEventListener("change", (event) => {
+        const file = event.currentTarget.files?.[0];
+        if (!file) return;
+        state.ui.chatAttachmentName = file.name;
+        save();
+        render();
+      });
+      document.querySelector(".voice-input")?.addEventListener("click", () => {
+        const input = document.querySelector("#chat-input");
+        input.value = `${input.value} Mündliche Notiz: `.trim();
+        input.focus();
+      });
+      document.querySelectorAll(".ai-quick-action").forEach((button) => button.addEventListener("click", () => {
+        const input = document.querySelector("#chat-input");
+        input.value = `${button.dataset.prompt || ""}${input.value}`.trim();
+        input.focus();
+      }));
+      document.querySelectorAll(".save-ai-flashcards").forEach((button) => button.addEventListener("click", () => {
+        const answer = state.chat.find((message) => message.id === button.dataset.id)?.text || "";
+        const question = lastUserMessageBefore(button.dataset.id);
+        state.flashcards.push({ id: uid("card"), subject: "KI", title: "StudyUp KI", question, answer, difficulty: 2, reviewCount: 0, source: "ai", published: false });
+        pushNotification("Karte gespeichert", "Die KI-Antwort wurde als Karte abgelegt.");
+        save();
+        render();
+      }));
+      document.querySelectorAll(".save-ai-mistake").forEach((button) => button.addEventListener("click", () => {
+        const answer = state.chat.find((message) => message.id === button.dataset.id)?.text || "";
+        saveMistake({ subject: "KI", topic: "KI-Übung", question: lastUserMessageBefore(button.dataset.id), correctAnswer: "", userAnswer: "", explanation: answer, source: "KI" });
+        pushNotification("Fehler gespeichert", "Der Punkt wurde in die Fehlerbank gelegt.");
+        save();
+        render();
+      }));
+      document.querySelectorAll(".save-ai-task").forEach((button) => button.addEventListener("click", () => {
+        const question = lastUserMessageBefore(button.dataset.id);
+        state.studyTasks.unshift({ id: uid("task"), subject: "KI", title: question.slice(0, 80), date: todayIso(), done: false });
+        pushNotification("Lernaufgabe gespeichert", "Die Aufgabe erscheint jetzt auf Home.");
+        save();
+        render();
+      }));
+      document.querySelector("#chat-form")?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const message = formData(event.currentTarget).message.trim();
+        const attachment = state.ui.chatAttachmentName;
+        if (!message && !attachment) return;
+        if (state.settings.aiQuestionsUsed >= state.settings.aiLimit) {
+          state.chat.push({ id: uid("msg"), role: "bot", text: `${planLabel(currentPlan())}-Limit erreicht: ${state.settings.aiLimit} KI-Fragen in diesem Monat sind genutzt.` });
+        } else {
+          state.chat.push({ id: uid("msg"), role: "user", text: `${message || "Foto-Frage"}${attachment ? ` [Foto bald: ${attachment}]` : ""}` });
+          state.chat.push({ id: uid("msg"), role: "bot", text: "Ich denke kurz nach ..." });
+          state.ui.chatAttachmentName = "";
+          save();
+          render();
+          const answer = await askStudyUpAI(message || attachment, attachment);
+          const placeholder = [...state.chat].reverse().find((msg) => msg.role === "bot" && msg.text === "Ich denke kurz nach ...");
+          if (placeholder) placeholder.text = answer;
+          state.settings.aiQuestionsUsed += 1;
+        }
+        state.ui.chatAttachmentName = "";
+        save();
+        render();
+      });
+    }
+
     if (route === "premium") {
       document.querySelectorAll(".activate-plan").forEach((button) => button.addEventListener("click", () => {
-        const plan = button.dataset.plan === "pro" ? "pro" : "plus";
+        const plan = button.dataset.plan;
+        if (plan !== "plus" && plan !== "pro") return;
         state.settings.plan = plan;
         state.settings.premiumActive = true;
         state.settings.planName = planLabel(plan);
@@ -1476,8 +1626,7 @@ if (route === "bot") {
         render();
       }));
       document.querySelectorAll(".setting-control").forEach((control) => control.addEventListener("change", () => {
-        const minPlan = control.dataset.minPlan || "plus";
-        if (minPlan === "pro" ? !isPro() : !isPlus()) return;
+        if (!isPlus()) return;
         state.settings[control.name] = control.value;
         save();
         render();
@@ -1485,59 +1634,25 @@ if (route === "bot") {
     }
   };
 
-  document.querySelectorAll(".account-setting").forEach((control) => control.addEventListener("change", () => {
-    ensureCollections();
-    const minPlan = control.dataset.minPlan || "free";
-    if (minPlan === "pro" ? !isPro() : minPlan === "plus" ? !isPlus() : false) return;
-    state.settings[control.name] = control.value;
-    save();
-    applyTheme();
-  }));
-
   themeToggle?.addEventListener("click", () => {
     ensureCollections();
     state.settings.theme = state.settings.theme === "dark" ? "light" : "dark";
     save();
     render();
   });
-  const logoutUser = () => {
-    state.user = {
-      ...state.user,
-      loggedIn: false
-    };
-    state.ui = {
-      ...state.ui,
-      selectedGradeSubject: null,
-      selectedPartialGroup: null,
-      showSubjectForm: false,
-      showGradeEntryForm: false,
-      showTargetGradeForm: false,
-      showPartialEntryForm: false,
-      showEventForm: false,
-      cardCreateOpen: false,
-      cardStudyOpen: false
-    };
-    accountPanel?.classList.remove("open");
-    accountButton?.setAttribute("aria-expanded", "false");
-    location.hash = "#dashboard";
+  notificationButton?.addEventListener("click", requestNotifications);
+  settingsButton?.addEventListener("click", () => {
+    location.hash = "#settings";
+  });
+  logoutButton?.addEventListener("click", () => {
+    ensureCollections();
+    state.user.loggedIn = false;
+    state.ui.selectedGradeSubject = null;
+    state.ui.selectedPartialGroup = null;
+    state.ui.cardCreateOpen = false;
     save();
+    location.hash = "#dashboard";
     render();
-  };
-  accountButton?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    const open = !accountPanel?.classList.contains("open");
-    accountPanel?.classList.toggle("open", open);
-    accountButton.setAttribute("aria-expanded", String(open));
-  });
-  accountLogout?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    logoutUser();
-  });
-  document.addEventListener("click", (event) => {
-    if (!accountPanel?.classList.contains("open")) return;
-    if (event.target.closest(".account-menu")) return;
-    accountPanel.classList.remove("open");
-    accountButton?.setAttribute("aria-expanded", "false");
   });
 
   ensureCollections();
@@ -1546,3 +1661,8 @@ if (route === "bot") {
   if (!location.hash) location.hash = "#dashboard";
   render();
 })();
+
+
+
+
+
