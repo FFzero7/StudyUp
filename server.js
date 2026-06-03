@@ -57,7 +57,7 @@ const callOpenAI = async (message) => {
     },
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
-      instructions: "Du bist StudyUp KI, ein vertrauenswürdiger Lerncoach für Schüler. Antworte auf Deutsch, erkläre Schritt für Schritt, stelle Rückfragen und gib nicht nur Endlösungen ohne Erklärung.",
+      instructions: "Du bist Lynxly AI, ein vertrauenswürdiger Lerncoach für Schüler. Antworte auf Deutsch, erkläre Schritt für Schritt, stelle Rückfragen und gib nicht nur Endlösungen ohne Erklärung.",
       input: message
     })
   });
@@ -81,7 +81,7 @@ const handleChat = async (req, res) => {
       offline: true
     });
   } catch (error) {
-    sendJson(res, 200, { answer: fallbackAnswer(""), offline: true, warning: error.message || "StudyUp KI konnte die Anfrage nicht lesen." });
+    sendJson(res, 200, { answer: fallbackAnswer(""), offline: true, warning: error.message || "Lynxly AI konnte die Anfrage nicht lesen." });
   }
 };
 
@@ -119,7 +119,7 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(4173, "127.0.0.1", () => {
-  console.log("StudyUp running at http://127.0.0.1:4173");
+  console.log("Lynxly running at http://127.0.0.1:4173");
 });
 
 
