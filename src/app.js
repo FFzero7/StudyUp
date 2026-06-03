@@ -4,8 +4,9 @@
   const themeToggle = document.querySelector("#theme-toggle");
   const themeIcon = document.querySelector("#theme-icon");
   const themeLabel = document.querySelector("#theme-label");
-  const notificationButton = document.querySelector("#notification-button");
   const settingsButton = document.querySelector("#settings-button");
+  const streakPill = document.querySelector("#streak-pill");
+  const streakCount = document.querySelector("#streak-count");
   const logoutButton = document.querySelector("#logout-button");
   const C = window.StudyUpComponents;
   let state = window.StudyUpStorage.load();
@@ -66,6 +67,7 @@
 
   const ensureCollections = () => {
     state.user = { ...window.StudyUpSeed.user, ...(state.user || {}) };
+    state.user.password = state.user.password || "";
     state.settings = { ...window.StudyUpSeed.settings, ...(state.settings || {}) };
     if (!["free", "plus", "pro"].includes(state.settings.plan)) {
       state.settings.plan = state.settings.premiumActive ? "plus" : "free";
@@ -83,7 +85,11 @@
       system.id === "ch" ? { ...system, step: 0.01, example: "5.75" } : system
     ));
     state.languages = state.languages?.length ? state.languages : copy(window.StudyUpSeed.languages);
-    state.notifications = state.notifications || [];
+    state.notifications = (state.notifications || []).map((note) => ({
+      ...note,
+      title: String(note.title || "").replaceAll("StudyUp", "Lynxly"),
+      text: String(note.text || "").replaceAll("StudyUp", "Lynxly")
+    }));
     state.homework = state.homework || [];
     state.subjects = (state.subjects || []).map((subject) => ({
       weight: 1,
@@ -96,14 +102,22 @@
     state.planEvents = state.planEvents || [];
     state.studyTasks = state.studyTasks || [];
     state.mistakes = (state.mistakes || []).map(normalizeMistake);
-    state.flashcards = (state.flashcards || []).map((card) => ({ source: "private", reviewCount: 0, published: false, title: card.subject, ...card }));
+    state.flashcards = (state.flashcards || []).map((card) => {
+      const normalized = { source: "private", reviewCount: 0, published: false, title: card.subject, ...card };
+      if (normalized.title === "StudyUp KI") normalized.title = "Lynxly AI";
+      return normalized;
+    });
     state.cardSchedule = state.cardSchedule || {};
     state.streak = { current: 0, weeklySessions: 0, lastStudyDate: "", ...(state.streak || {}) };
     state.cardLibrary = state.cardLibrary?.length ? state.cardLibrary : copy(window.StudyUpSeed.cardLibrary);
+    state.cardLibrary = state.cardLibrary.map((pack) => ({
+      ...pack,
+      author: pack.author === "StudyUp Database" ? "Lynxly Datenbank" : pack.author
+    }));
     state.chat = (state.chat || []).map((message) => (
       message.role === "bot" && (String(message.text || "").includes("Unexpected token") || String(message.text || "").includes("Not found"))
         ? { ...message, text: "Diese alte KI-Antwort kam aus einer nicht verbundenen API. Stelle die Frage einfach noch einmal." }
-        : message
+        : { ...message, text: String(message.text || "").replaceAll("StudyUp KI", "Lynxly AI").replaceAll("StudyUp", "Lynxly") }
     ));
     state.ui = { ...window.StudyUpSeed.ui, ...(state.ui || {}) };
     state.ui.selectedPartialGroup = state.ui.selectedPartialGroup || null;
@@ -112,6 +126,8 @@
     state.ui.studySessionStep = Number(state.ui.studySessionStep || 0);
     state.ui.studySessionCardIndex = Number(state.ui.studySessionCardIndex || 0);
     state.ui.mistakeFilter = state.ui.mistakeFilter || "open";
+    state.ui.settingsTab = state.ui.settingsTab || "profile";
+    state.ui.designOpen = Boolean(state.ui.designOpen);
     state.ui.aiOfflineMode = state.ui.aiOfflineMode !== false;
     state.ui.showMistakeForm = Boolean(state.ui.showMistakeForm);
     state.ui.showTargetGradeForm = Boolean(state.ui.showTargetGradeForm);
@@ -180,8 +196,8 @@
   };
   const topicList = (topics) => Array.isArray(topics) ? topics : String(topics || "").split(",").map((topic) => topic.trim()).filter(Boolean);
 
-  const applyDemoData = () => {
-    state.user = { loggedIn: true, name: state.user.name || "Demo-Schüler", email: state.user.email || "", region: state.user.region || "ch" };
+  const applySampleData = () => {
+    state.user = { loggedIn: true, name: state.user.name || "Beispiel-Schüler", email: state.user.email || "", password: state.user.password || "lynx1234", region: state.user.region || "ch" };
     state.settings.gradeSystem = state.settings.gradeSystem || "ch";
     state.settings.language = state.settings.language || "de-CH";
     state.subjects = [
@@ -198,8 +214,8 @@
       { id: uid("card"), subject: "Biologie", title: "Zellen", question: "Zellkern", answer: "Steuert die Zelle und enthält DNA.", difficulty: 2, reviewCount: 0, source: "private", published: false }
     ];
     state.mistakes = [
-      normalizeMistake({ subject: "Mathe", topic: "Klammern", question: "2*(3+4)", userAnswer: "10", correctAnswer: "14", explanation: "Zuerst die Klammer rechnen: 3+4=7, danach 2*7=14.", source: "Demo" }),
-      normalizeMistake({ subject: "Französisch", topic: "Vokabeln", question: "au revoir", userAnswer: "Hallo", correctAnswer: "auf Wiedersehen", explanation: "Bonjour ist hallo, au revoir ist auf Wiedersehen.", source: "Demo" })
+      normalizeMistake({ subject: "Mathe", topic: "Klammern", question: "2*(3+4)", userAnswer: "10", correctAnswer: "14", explanation: "Zuerst die Klammer rechnen: 3+4=7, danach 2*7=14.", source: "Beispiel" }),
+      normalizeMistake({ subject: "Französisch", topic: "Vokabeln", question: "au revoir", userAnswer: "Hallo", correctAnswer: "auf Wiedersehen", explanation: "Bonjour ist hallo, au revoir ist auf Wiedersehen.", source: "Beispiel" })
     ];
     state.studyTasks = [{ id: uid("task"), subject: "Mathe", title: "Klammerregel wiederholen", date: todayIso(), done: false }];
     state.cardSchedule = {};
@@ -212,13 +228,19 @@
 
   const applyTheme = () => {
     const system = currentSystem();
-    document.title = "StudyUp.com";
+    document.title = "Lynxly";
     document.documentElement.dataset.theme = state.settings.theme;
     document.documentElement.lang = state.settings.language || system.language;
     document.body.classList.toggle("is-locked", !state.user.loggedIn);
     const accent = accentColors[state.settings.accent] || accentColors.blue;
     document.documentElement.style.setProperty("--accent", accent);
     document.documentElement.style.setProperty("--accent-soft", `${accent}1A`);
+    const streak = Number(state.streak?.current || 0);
+    if (streakCount) streakCount.textContent = String(streak);
+    if (streakPill) {
+      streakPill.title = `${streak} Tage Lernserie`;
+      streakPill.setAttribute("aria-label", `${streak} Tage Lernserie`);
+    }
     if (themeIcon) themeIcon.innerHTML = state.settings.theme === "dark" ? "&#9728;" : "&#9790;";
     if (themeLabel) themeLabel.textContent = state.settings.theme === "dark" ? "Hell" : "Dunkel";
   };
@@ -245,8 +267,8 @@
 
   const requestNotifications = async () => {
     const next = calendarItems().find((item) => item.date >= todayIso());
-    const text = next ? `${next.subject}: ${next.title} ist als Nächstes dran.` : "StudyUp kann dir Geräte-Mitteilungen schicken.";
-    await pushNotification("StudyUp Erinnerung", text, true);
+    const text = next ? `${next.subject}: ${next.title} ist als Nächstes dran.` : "Lynxly kann dir Geräte-Mitteilungen schicken.";
+    await pushNotification("Lynxly Erinnerung", text, true);
     render();
   };
 
@@ -255,18 +277,17 @@
     return `
       <section class="onboarding-screen">
         <div class="onboarding-logo">
-          <span class="logo" aria-hidden="true">
-            <svg viewBox="0 0 48 48"><path d="M8 12.5c5.7-.9 10.6.2 14 3.1v21.1c-3.4-2.9-8.3-4-14-3.1V12.5Z" /><path d="M40 12.5c-5.7-.9-10.6.2-14 3.1v21.1c3.4-2.9 8.3-4 14-3.1V12.5Z" /><path d="M24 10v28" /><path d="M31 20.5 36 15l5 5.5" /><path d="M36 15v12" /></svg>
-          </span>
-          <h1>StudyUp.com</h1>
+          ${C.mascot("mascot-floating")}
+          <h1>Lynxly</h1>
+          <p>Lynxly: dein smarter Lerncoach.</p>
         </div>
         <form class="panel onboarding-card" id="onboarding-form">
           <label>Name<input name="name" required placeholder="Dein Name" /></label>
           <label>E-Mail <small>optional</small><input name="email" type="email" placeholder="name@schule.ch" /></label>
+          <label>Passwort<input name="password" type="password" required minlength="4" placeholder="Mindestens 4 Zeichen" /></label>
           <label>Region / Notensystem<select name="gradeSystem">${state.gradeSystems.map((item) => `<option value="${item.id}" ${item.id === system.id ? "selected" : ""}>${C.escapeHtml(item.name)} · ${C.escapeHtml(item.label)}</option>`).join("")}</select></label>
           <label>App-Sprache<select name="language">${state.languages.map((item) => `<option value="${item.id}" ${item.id === state.settings.language ? "selected" : ""}>${C.escapeHtml(item.name)}</option>`).join("")}</select></label>
-          <button class="primary-button" type="submit">StudyUp starten</button>
-          <button class="secondary-button" id="demo-data-button" type="button">Demo-Daten ausprobieren</button>
+          <button class="primary-button" type="submit">Lynxly starten</button>
         </form>
       </section>
     `;
@@ -366,7 +387,7 @@
     const improving = system.higherIsBetter ? delta > 0.05 : delta < -0.05;
     const falling = system.higherIsBetter ? delta < -0.05 : delta > 0.05;
     if (improving) return "Verbessert";
-    if (falling) return "Faellt";
+    if (falling) return "Fällt";
     return "Stabil";
   };
 
@@ -409,10 +430,10 @@
       return `Heute sind ${cardFocus[1]} Karten in ${cardFocus[0]} fällig. Starte eine kurze Wiederholung.`;
     }
     const weak = weakestSubject();
-    if (weak) return `Dein nächster sinnvoller Fokus ist ${weak.name}, weil StudyUp dort den größten Übungsbedarf sieht.`;
+    if (weak) return `Dein nächster sinnvoller Fokus ist ${weak.name}, weil Lynxly dort den größten Übungsbedarf sieht.`;
     const next = nextExamOrHomework();
     if (next) return `Bereite dich heute kurz auf ${next.subject} vor: ${next.title} ist am ${formatDate(next.date)} dran.`;
-    return "Starte mit einem Fach, einer Karte oder einem Fehler. StudyUp baut daraus deinen Lerncoach.";
+    return "Starte mit einem Fach, einer Karte oder einem Fehler. Lynxly baut daraus deinen Lerncoach.";
   };
 
   const renderDashboard = () => {
@@ -438,27 +459,23 @@
   const renderTodayDashboard = () => {
     const next = nextFocus();
     const nextWork = nextExamOrHomework();
-    const tip = smartRecommendation();
     const avg = weightedAverage();
     const points = plusPointsTotal();
     const weak = weakestSubject();
     const tasks = studyTasksToday();
-    const cardsDue = dueCards().length;
-    const mistakesOpen = openMistakes().length;
     const hasContent = state.subjects.length || state.flashcards.length || state.exams.length || state.homework.length || state.mistakes.length;
     return `
       <section class="home-page today-dashboard">
         <h1>Heute</h1>
         <article class="coach-sentence-card">
-          <span>StudyUp Coach</span>
+          <div class="mascot-card-head">${C.mascot("mascot-small mascot-floating")}<span>Lynxly sagt</span></div>
           <strong>${C.escapeHtml(smartCoachSentence())}</strong>
           <div class="coach-action-row">
             <button class="primary-button start-study-session" type="button">${C.icon("clock")} 15-Minuten-Lerneinheit starten</button>
             <a class="secondary-button" href="#mistakes">Fehlerbank</a>
-            <a class="secondary-button" href="#premium">Plus</a>
           </div>
         </article>
-        ${hasContent ? "" : `<article class="empty-state dashboard-empty"><strong>Neu hier?</strong><p>Probiere StudyUp mit Beispielnoten, Karten, Fehlern und einem Testtermin aus.</p><button class="secondary-button load-demo-data" type="button">Demo-Daten ausprobieren</button></article>`}
+        ${hasContent ? "" : `<article class="empty-state mascot-empty dashboard-empty">${C.mascot("mascot-small")}<div><strong>Neu hier?</strong><p>Füge deine ersten Noten, Karten oder Termine hinzu. Lynxly baut daraus deinen Lernplan.</p></div></article>`}
         <div class="home-metric-row today-metrics">
           <article><span>Notendurchschnitt</span><strong>${avg === null ? "-" : avg.toFixed(2)}</strong></article>
           <article><span>Pluspunkte</span><strong>${state.subjects.some(subjectHasGrades) ? formatPlusPoints(points) : "-"}</strong></article>
@@ -480,14 +497,8 @@
           <article class="focus-card">
             <span>Schwächstes Fach</span>
             <h2>${weak ? C.escapeHtml(weak.name) : "Noch offen"}</h2>
-            <p>${weak ? C.escapeHtml(weak.reason) : "Trage Noten ein oder speichere Fehler, damit StudyUp dich gezielter coachen kann."}</p>
+            <p>${weak ? C.escapeHtml(weak.reason) : "Trage Noten ein oder speichere Fehler, damit Lynxly dich gezielter coachen kann."}</p>
             <a class="secondary-button" href="${weak ? weak.href : "#grades"}">Ansehen</a>
-          </article>
-          <article class="focus-card">
-            <span>Fortschritt</span>
-            <h2>${Number(state.streak.current || 0)} Tage Serie</h2>
-            <p>${Number(state.streak.weeklySessions || 0)} Lerneinheiten diese Woche - ${cardsDue} Karten fällig - ${mistakeLabel(mistakesOpen)}</p>
-            <a class="secondary-button" href="${tip.href}">${C.escapeHtml(tip.title)}</a>
           </article>
         </div>
       </section>
@@ -519,7 +530,7 @@
       </section>`,
       `<section class="session-step">
         <h2>Mini-Check</h2>
-        <article class="panel"><p class="panel-note">Schreibe in einem Satz auf, was du gerade besser verstanden hast. Das speichert StudyUp als kleine Lernnotiz.</p><form id="session-check-form"><label>Meine Zusammenfassung<textarea name="summary" rows="4" placeholder="Heute habe ich verstanden, dass ..."></textarea></label><button class="primary-button" type="submit">Speichern und weiter</button></form></article>
+        <article class="panel"><p class="panel-note">Schreibe in einem Satz auf, was du gerade besser verstanden hast. Das speichert Lynxly als kleine Lernnotiz.</p><form id="session-check-form"><label>Meine Zusammenfassung<textarea name="summary" rows="4" placeholder="Heute habe ich verstanden, dass ..."></textarea></label><button class="primary-button" type="submit">Speichern und weiter</button></form></article>
       </section>`,
       `<section class="session-step">
         <h2>Gut gemacht</h2>
@@ -731,23 +742,27 @@
     `;
   };
 
-  const renderCalendar = () => `<div class="calendar-month-stack">${[0, 1, 2].map(renderMonthCalendar).join("")}</div>`;
+  const renderCalendar = () => `<div class="calendar-month-stack">${renderMonthCalendar(state.ui.plannerMonthOffset)}</div>`;
 
-  const renderPlanner = () => `
-    ${C.sectionTitle("Plan", "Kalender")}
-    <section class="panel calendar-only-panel">
-      <div class="panel-header"><div><span>${formatDate(todayIso(), { month: "long", year: "numeric" })}</span><h2>${state.ui.showEventForm ? "Eintrag hinzufügen" : "Kalender"}</h2></div><button class="round-add" id="toggle-event-form" type="button">${state.ui.showEventForm ? "×" : "+"}</button></div>
+  const renderPlanner = () => {
+    const base = new Date();
+    const shownMonth = toIso(new Date(base.getFullYear(), base.getMonth() + Number(state.ui.plannerMonthOffset || 0), 1));
+    return `
+      ${C.sectionTitle("Plan", "Kalender")}
+      <section class="panel calendar-only-panel">
+        <div class="panel-header calendar-header"><div><span>${formatDate(shownMonth, { month: "long", year: "numeric" })}</span><h2>${state.ui.showEventForm ? "Eintrag hinzufügen" : "Kalender"}</h2></div><div class="calendar-header-actions"><button class="icon-button planner-prev-month" type="button" title="Vorheriger Monat">&#8592;</button><button class="icon-button planner-next-month" type="button" title="Nächster Monat">&#8594;</button><button class="round-add" id="toggle-event-form" type="button">${state.ui.showEventForm ? "×" : "+"}</button></div></div>
       ${state.ui.showEventForm ? "" : renderCalendar()}
       <form id="event-form" class="calendar-entry-form ${state.ui.showEventForm ? "show" : ""}">
         <label>Eintrag<select name="kind"><option value="event">Termin</option><option value="exam">Prüfung</option><option value="homework">Hausaufgabe</option></select></label>
         <label>Fach<input name="subject" required placeholder="z. B. Französisch" /></label>
         <label>Titel<input name="title" required placeholder="z. B. UNIT 1" /></label>
         <label>Datum<input name="date" required type="date" value="${todayIso()}" /></label>
-        <label class="toggle-field"><input name="autoPlan" type="checkbox" value="on" /><span>Automatische Lerntermine</span><small>StudyUp trägt Wiederholen, Üben, Karteikarten und Mini-Test bis zum Datum ein.</small></label>
+        <label class="toggle-field"><input name="autoPlan" type="checkbox" value="on" /><span>Automatische Lerntermine</span><small>Lynxly trägt Wiederholen, Üben, Karteikarten und Mini-Test bis zum Datum ein.</small></label>
         <button class="primary-button" type="submit">Eintragen</button>
       </form>
-    </section>
-  `;
+      </section>
+    `;
+  };
 
   const filteredLibrary = () => {
     const query = String(state.ui.cardSearch || "").toLowerCase();
@@ -838,7 +853,7 @@
         <button class="secondary-button choose-card-mode" data-mode="ai" type="button">${C.icon("camera")} Mit KI ${isPlus() ? "" : "· Plus"}</button>
         <button class="secondary-button choose-card-mode" data-mode="self" type="button">${C.icon("add")} Selbst</button>
       </div>
-      ${state.ui.cardCreateMode === "ai" ? (isPlus() ? `<div class="panel photo-card-panel"><h2>KI-Karten Generator</h2><p class="panel-note">Plus und Pro bekommen KI-Karten. Foto-zu-Karten ist ein Pro-Feature und kommt bald.</p>${state.ui.lastPhotoName ? `<div class="empty-state"><strong>Ausgewählt: ${C.escapeHtml(state.ui.lastPhotoName)}</strong><p>OCR und automatische Kartenerstellung sind noch nicht aktiv.</p></div>` : ""}<label>Fach<input id="photo-card-subject" placeholder="z. B. Französisch" /></label><label class="upload-tile ${isPro() ? "" : "locked-upload"}">${C.icon("camera")} Foto auswählen (${isPro() ? "kommt bald" : "Pro"})<input id="photo-card-input" type="file" accept="image/*" capture="environment" ${isPro() ? "" : "disabled"} /></label></div>` : `<div class="panel locked-feature"><h2>KI-Karten sind Plus</h2><p class="panel-note">Free bleibt für eigene Karten nutzbar. Upgrade auf Plus, wenn StudyUp Karten automatisch vorbereiten soll.</p><a class="primary-button" href="#premium">Pläne ansehen</a></div>`) : ""}
+      ${state.ui.cardCreateMode === "ai" ? (isPlus() ? `<div class="panel photo-card-panel"><h2>KI-Karten Generator</h2><p class="panel-note">Plus und Pro bekommen KI-Karten. Foto-zu-Karten ist ein Pro-Feature und kommt bald.</p>${state.ui.lastPhotoName ? `<div class="empty-state mascot-empty">${C.mascot("mascot-small")}<div><strong>Ausgewählt: ${C.escapeHtml(state.ui.lastPhotoName)}</strong><p>OCR und automatische Kartenerstellung sind noch nicht aktiv.</p></div></div>` : ""}<label>Fach<input id="photo-card-subject" placeholder="z. B. Französisch" /></label><label class="upload-tile ${isPro() ? "" : "locked-upload"}">${C.icon("camera")} Foto auswählen (${isPro() ? "kommt bald" : "Pro"})<input id="photo-card-input" type="file" accept="image/*" capture="environment" ${isPro() ? "" : "disabled"} /></label></div>` : `<div class="panel locked-feature"><h2>KI-Karten sind Plus</h2><p class="panel-note">Free bleibt für eigene Karten nutzbar. Upgrade auf Plus, wenn Lynxly Karten automatisch vorbereiten soll.</p><a class="primary-button" href="#premium">Pläne ansehen</a></div>`) : ""}
       ${state.ui.cardCreateMode === "self" ? `<form class="panel form-panel" id="card-form"><label>Titel / Fach<input name="subject" required placeholder="z. B. Französisch UNIT 1" /></label><label>Frage<textarea name="question" required rows="3"></textarea></label><label>Antwort<textarea name="answer" required rows="3"></textarea></label><label>Status<select name="difficulty"><option value="1">Gut</option><option value="2" selected>Okay</option><option value="3">Schlecht</option></select></label><button class="primary-button" type="submit">Karte speichern</button></form>` : ""}
     </section>
   `;
@@ -968,7 +983,7 @@
     return `Kurz erklärt: ${raw || "Diese Frage"} kann ich dir beantworten. Wenn es eine Aufgabe ist, zerlegen wir sie zuerst in: Was ist gegeben? Was wird gesucht? Welcher erste Schritt passt dazu?`;
   };
 
-  const askStudyUpAI = async (message, attachment) => {
+  const askLynxlyAI = async (message, attachment) => {
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -986,7 +1001,7 @@
       state.ui.aiOfflineMode = Boolean(data.offline);
       return data.answer || botAnswer(message || attachment, attachment ? "Foto" : "Text");
     } catch (error) {
-      console.warn("StudyUp KI nutzt lokale Antwort.", error);
+      console.warn("Lynxly AI nutzt lokale Antwort.", error);
       state.ui.aiOfflineMode = true;
       return `${botAnswer(message || attachment, attachment ? "Foto" : "Text")}\n\nHinweis: Die echte KI-Route ist lokal gerade nicht verbunden, deshalb nutze ich eine sichere Offline-Antwort.`;
     }
@@ -1008,8 +1023,9 @@
     ];
     return `
       <section class="ai-full-page">
-        <h1>StudyUp KI</h1>
-        <div class="ai-status-pill ${state.ui.aiOfflineMode ? "offline" : "online"}">${state.ui.aiOfflineMode ? "Offline-Demo-Modus" : "Online KI aktiv"}</div>
+        <h1>Lynxly AI</h1>
+        <div class="mascot-card ai-mascot-card">${C.mascot("mascot-small")}<p>Lynxly: dein smarter Lerncoach. Ich erkläre ruhig, stelle Rückfragen und helfe dir beim nächsten Schritt.</p></div>
+        <div class="ai-status-pill ${state.ui.aiOfflineMode ? "offline" : "online"}">${state.ui.aiOfflineMode ? "Offline-Modus" : "Online KI aktiv"}</div>
         <section class="ai-window">
           <div class="ai-output">
             ${messages.map((msg) => `<article class="message ${msg.role === "user" ? "user" : "bot"}"><p>${C.escapeHtml(msg.text)}</p>${msg.role === "bot" && msg.id !== "intro" ? `<div class="message-actions"><button class="save-ai-flashcards" data-id="${msg.id}" type="button">Als Karten</button><button class="save-ai-mistake" data-id="${msg.id}" type="button">Als Fehler</button><button class="save-ai-task" data-id="${msg.id}" type="button">Als Aufgabe</button></div>` : ""}</article>`).join("")}
@@ -1019,7 +1035,7 @@
             ${actions.map(([label, prompt]) => `<button class="ai-quick-action" data-prompt="${C.escapeHtml(prompt)}" type="button">${C.escapeHtml(label)}</button>`).join("")}
           </div>
           <form id="chat-form" class="ai-full-input">
-            <textarea id="chat-input" name="message" placeholder="Frag StudyUp KI"></textarea>
+            <textarea id="chat-input" name="message" placeholder="Frag Lynxly AI"></textarea>
             <div class="ai-input-tools">
               <label class="tool-button" title="Fotoanalyse kommt bald">${C.icon("camera")}<input id="ai-photo-input" type="file" accept="image/*" capture="environment" /></label>
               <button class="tool-button voice-input" type="button" title="Mündlicher Input als Textnotiz">${C.icon("mic")}</button>
@@ -1033,7 +1049,7 @@
 
   const renderPlanCard = ({ id, title, position, price, features, badge, tone }) => {
     const active = currentPlan() === id;
-    const buttonLabel = id === "free" ? (active ? "Current plan" : "Free included") : active ? `${title} active` : `Upgrade to ${title}`;
+    const buttonLabel = id === "free" ? (active ? "Aktueller Plan" : "Gratis enthalten") : active ? `${title} aktiv` : `Upgrade auf ${title}`;
     return `
       <article class="price-card plan-card ${id === "plus" ? "featured" : ""} ${tone || ""}">
         ${badge ? `<em class="plan-badge">${C.escapeHtml(badge)}</em>` : ""}
@@ -1046,76 +1062,108 @@
     `;
   };
 
-  const renderPremium = () => `
-    ${C.sectionTitle("Premium", "StudyUp Pläne")}
+  const renderPlanPricing = () => `
     <section class="panel premium-intro">
-      <p>Free helps you get organized. Plus helps you study smarter. Pro helps you prepare like a top student.</p>
-      <small>Demo-Aktivierung: Noch keine echte Zahlung. Die Buttons ändern den lokalen Plan zum Testen.</small>
+      <p>Gratis hilft dir beim Organisieren. Plus macht dein Lernen smarter. Pro bereitet dich wie ein Top-Schüler vor.</p>
     </section>
-    <section class="pricing-grid premium-grid three-plans">
+    <section class="pricing-grid premium-grid plan-stack">
       ${renderPlanCard({
         id: "free",
-        title: "Free",
-        position: "Get organized",
+        title: "Gratis",
+        position: "Organisiert starten",
         price: "CHF 0",
-        features: ["Grades tracker", "Grade average calculator", "Basic planner/calendar", "Homework and test tracking", "3 flashcard decks", "50 personal cards", "10 KI questions/month", "Basic weak subject warning", "Basic study reminders", "2 basic themes"]
+        features: ["Noten-Tracker", "Notendurchschnitt", "Einfacher Kalender", "Hausaufgaben und Prüfungen", "3 Kartenstapel", "50 eigene Karten", "10 KI-Fragen pro Monat", "Basis-Erinnerungen", "2 Designs"]
       })}
       ${renderPlanCard({
         id: "plus",
         title: "Plus",
-        position: "Study smarter",
-        price: "CHF 4.90/month",
-        badge: "Recommended",
-        features: ["Everything in Free", "300 KI questions/month", "KI flashcard generator", "KI quiz generator", "Smart study plans", "Full recommended card decks", "Unlimited personal flashcards", "Smart reminders", "Weekly study report", "Custom themes", "Smart weak subject detection"]
+        position: "Smarter lernen",
+        price: "CHF 4.90/Monat",
+        badge: "Beliebt",
+        features: ["Alles aus Gratis", "300 KI-Fragen pro Monat", "KI-Karten Generator", "KI-Quiz Generator", "Smarte Lernpläne", "Vollständige empfohlene Stapel", "Unbegrenzte eigene Karten", "Smarte Erinnerungen", "Wochenbericht", "Eigene Designs"]
       })}
       ${renderPlanCard({
         id: "pro",
         title: "Pro",
-        position: "Prepare like a top student",
-        price: "CHF 7.90/month",
+        position: "Wie ein Top-Schüler vorbereiten",
+        price: "CHF 7.90/Monat",
         tone: "pro-card",
-        features: ["Everything in Plus", "1,000 KI questions/month", "300 KI flashcard generations/month", "30 photo-to-flashcard scans/month", "Advanced analytics", "Advanced exam preparation", "Hard-card review mode", "Export flashcards", "Early access to new features", "Pro styles/themes"]
+        features: ["Alles aus Plus", "1'000 KI-Fragen pro Monat", "300 KI-Karten-Generierungen pro Monat", "30 Foto-zu-Karten Scans pro Monat", "Erweiterte Auswertungen", "Prüfungsvorbereitung", "Schwere-Karten-Modus", "Karten exportieren", "Früher Zugriff auf neue Features", "Pro Designs"]
       })}
     </section>
-    <section class="panel customize-panel ${isPlus() ? "" : "locked"}">
-      <div class="panel-header"><div><span>Plus und Pro</span><h2>Custom themes</h2></div>${isPlus() ? C.icon("palette") : C.icon("lock")}</div>
-      <p class="panel-note">${isPlus() ? "Dein Plan kann den Look der App anpassen." : "Custom themes sind in Plus und Pro enthalten."}</p>
-      <div class="custom-grid">
-        <label>Akzentfarbe<select name="accent" class="setting-control" ${isPlus() ? "" : "disabled"}><option value="blue" ${state.settings.accent === "blue" ? "selected" : ""}>Blau</option><option value="green" ${state.settings.accent === "green" ? "selected" : ""}>Grün</option><option value="violet" ${state.settings.accent === "violet" ? "selected" : ""}>Violett</option><option value="coral" ${state.settings.accent === "coral" ? "selected" : ""}>Koralle</option></select></label>
-        <label>Kartenstil<select name="cardStyle" class="setting-control" ${isPlus() ? "" : "disabled"}><option value="stacked" ${state.settings.cardStyle === "stacked" ? "selected" : ""}>Gestapelt</option><option value="clean" ${state.settings.cardStyle === "clean" ? "selected" : ""}>Clean</option></select></label>
-      </div>
-    </section>
     <section class="panel pro-feature-panel ${isPro() ? "" : "locked"}">
-      <div class="panel-header"><div><span>Pro only</span><h2>Analytics, export and exam prep</h2></div>${isPro() ? C.icon("spark") : C.icon("lock")}</div>
-      <p class="panel-note">Advanced analytics, flashcard export, hard-card review and Pro styles are reserved for Pro. Photo-to-flashcards is planned as a Pro feature.</p>
+      <div class="panel-header"><div><span>Nur Pro</span><h2>Analyse, Export und Prüfungsmodus</h2></div>${isPro() ? C.icon("spark") : C.icon("lock")}</div>
+      <p class="panel-note">Erweiterte Auswertungen, Kartenexport, Schwere-Karten-Modus und Pro-Designs sind für Pro reserviert. Foto-zu-Karten ist als Pro-Funktion geplant.</p>
     </section>
   `;
 
-  const renderSettings = () => `
-    <section class="settings-page">
-      <div class="mistake-header">
-        <div><span class="eyebrow">Profil</span><h1>Einstellungen</h1></div>
-        <a class="secondary-button" href="#dashboard">Zurück</a>
+  const renderPremium = () => `
+    ${C.sectionTitle("Premium", "Lynxly Pläne")}
+    ${renderPlanPricing()}
+  `;
+
+  const renderDesignPanel = () => `
+    <section class="panel design-settings-panel ${state.ui.designOpen ? "show" : ""}">
+      <div class="panel-header"><div><span>Design</span><h2>Lynxly anpassen</h2></div>${isPlus() ? C.icon("palette") : C.icon("lock")}</div>
+      <p class="panel-note">${isPlus() ? "Wähle Farben und Kartenstil direkt aus." : "Farben und Kartenstil sind Plus/Pro. Hell und Dunkel kannst du immer nutzen."}</p>
+      <div class="interactive-option-grid">
+        ${[
+          ["blue", "Blau", "#2563eb"],
+          ["green", "Grün", "#10b981"],
+          ["violet", "Violett", "#7c3aed"],
+          ["coral", "Koralle", "#f97316"]
+        ].map(([value, label, color]) => `<button class="design-option setting-pick ${state.settings.accent === value ? "active" : ""}" data-name="accent" data-value="${value}" type="button" ${isPlus() ? "" : "disabled"}><i style="--swatch:${color}"></i><strong>${label}</strong><small>Akzent</small></button>`).join("")}
       </div>
-      <section class="panel">
-        <div class="panel-header"><div><span>Konto</span><h2>${C.escapeHtml(state.user.name || "StudyUp Nutzer")}</h2></div>${C.icon("user")}</div>
-        <p class="panel-note">StudyUp ist in dieser Version lokal-first. Deine Daten werden aktuell im Browser auf diesem Gerät gespeichert. Eine echte Cloud-Anmeldung oder Zahlung ist noch nicht aktiv.</p>
-        <div class="settings-grid">
-          <article><span>Region</span><strong>${C.escapeHtml(currentSystem().name)}</strong></article>
-          <article><span>Plan</span><strong>${C.escapeHtml(planLabel(currentPlan()))}</strong></article>
-        </div>
-      </section>
-      <section class="panel">
-        <div class="panel-header"><div><span>Daten</span><h2>Lokale Daten kontrollieren</h2></div>${C.icon("lock")}</div>
-        <div class="button-row settings-actions">
-          <button class="secondary-button export-data" type="button">Daten als JSON exportieren</button>
-          <button class="secondary-button load-demo-data" type="button">Demo-Daten ausprobieren</button>
-          <button class="secondary-button danger-action delete-local-data" type="button">${C.icon("trash")} Alle lokalen Daten löschen</button>
-          <button class="secondary-button settings-logout" type="button">Ausloggen</button>
-        </div>
-      </section>
+      <div class="interactive-option-grid two">
+        <button class="design-option setting-pick ${state.settings.cardStyle === "stacked" ? "active" : ""}" data-name="cardStyle" data-value="stacked" type="button" ${isPlus() ? "" : "disabled"}><strong>Gestapelt</strong><small>Karten mit Tiefe</small></button>
+        <button class="design-option setting-pick ${state.settings.cardStyle === "clean" ? "active" : ""}" data-name="cardStyle" data-value="clean" type="button" ${isPlus() ? "" : "disabled"}><strong>Clean</strong><small>Ruhiger Look</small></button>
+      </div>
+      <div class="interactive-option-grid two">
+        <button class="design-option setting-pick ${state.settings.theme === "light" ? "active" : ""}" data-name="theme" data-value="light" type="button"><strong>Sonne</strong><small>Hellmodus</small></button>
+        <button class="design-option setting-pick ${state.settings.theme === "dark" ? "active" : ""}" data-name="theme" data-value="dark" type="button"><strong>Halbmond</strong><small>Dunkelmodus</small></button>
+      </div>
     </section>
   `;
+
+  const renderSettings = () => {
+    const maskedPassword = state.user.password ? "•".repeat(Math.min(Math.max(state.user.password.length, 4), 12)) : "Nicht gesetzt";
+    const tab = state.ui.settingsTab === "plan" ? "plan" : "profile";
+    return `
+      <section class="settings-page account-page">
+        <div class="mistake-header">
+          <div><span class="eyebrow">Account</span><h1>Profil</h1></div>
+          <a class="secondary-button" href="#dashboard">Zurück</a>
+        </div>
+        <div class="settings-tabs" role="tablist" aria-label="Account Bereiche">
+          <button class="settings-tab ${tab === "profile" ? "active" : ""}" data-tab="profile" type="button">Profil</button>
+          <button class="settings-tab ${tab === "plan" ? "active" : ""}" data-tab="plan" type="button">Plan</button>
+        </div>
+        ${tab === "plan" ? `
+          <section class="account-plan-panel">
+            ${renderPlanPricing()}
+          </section>
+        ` : `
+          <section class="panel account-profile-card">
+            <div class="account-logo-wrap">${C.mascot("mascot-small")}</div>
+            <div>
+              <span>Profil</span>
+              <h2>${C.escapeHtml(state.user.name || "Lynxly Nutzer")}</h2>
+              <p>Lynxly speichert deine Daten lokal in deinem Browser.</p>
+            </div>
+            <div class="account-detail-grid">
+              <article><span>E-Mail</span><strong>${C.escapeHtml(state.user.email || "Keine E-Mail")}</strong></article>
+              <article><span>Passwort</span><strong>${C.escapeHtml(maskedPassword)}</strong></article>
+              <article><span>Region</span><strong>${C.escapeHtml(currentSystem().name)}</strong></article>
+              <article><span>Plan</span><strong>${C.escapeHtml(planLabel(currentPlan()))}</strong></article>
+            </div>
+          </section>
+          <button class="design-toggle-button" type="button">${C.icon("palette")} Design anpassen</button>
+          ${renderDesignPanel()}
+          <button class="danger-logout settings-logout" type="button">${C.icon("trash")} Ausloggen</button>
+        `}
+      </section>
+    `;
+  };
 
   const render = () => {
     ensureCollections();
@@ -1136,32 +1184,10 @@
       event.preventDefault();
       const data = formData(event.currentTarget);
       const system = state.gradeSystems.find((item) => item.id === data.gradeSystem) || currentSystem();
-      state.user = { loggedIn: true, name: data.name, email: data.email || "", region: data.gradeSystem };
+      state.user = { loggedIn: true, name: data.name, email: data.email || "", password: data.password || "", region: data.gradeSystem };
       state.settings.gradeSystem = system.id;
       state.settings.language = data.language || system.language;
       save();
-      render();
-    });
-    document.querySelectorAll(".load-demo-data, #demo-data-button").forEach((button) => button.addEventListener("click", () => {
-      applyDemoData();
-      save();
-      location.hash = "#dashboard";
-      render();
-    }));
-    document.querySelector(".export-data")?.addEventListener("click", () => {
-      const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `studyup-data-${todayIso()}.json`;
-      link.click();
-      URL.revokeObjectURL(url);
-    });
-    document.querySelector(".delete-local-data")?.addEventListener("click", () => {
-      if (!confirm("Alle lokalen StudyUp-Daten auf diesem Gerät löschen?")) return;
-      localStorage.removeItem("studyup-state-v6");
-      state = window.StudyUpStorage.load();
-      location.hash = "#dashboard";
       render();
     });
     document.querySelector(".settings-logout")?.addEventListener("click", () => {
@@ -1171,12 +1197,41 @@
       location.hash = "#dashboard";
       render();
     });
+    document.querySelectorAll(".settings-tab").forEach((button) => button.addEventListener("click", () => {
+      state.ui.settingsTab = button.dataset.tab || "profile";
+      save();
+      render();
+    }));
+    document.querySelector(".design-toggle-button")?.addEventListener("click", () => {
+      state.ui.designOpen = !state.ui.designOpen;
+      save();
+      render();
+    });
+    document.querySelectorAll(".setting-pick").forEach((button) => button.addEventListener("click", () => {
+      const name = button.dataset.name;
+      const value = button.dataset.value;
+      if (!name || value === undefined) return;
+      if ((name === "accent" || name === "cardStyle") && !isPlus()) return;
+      state.settings[name] = value;
+      save();
+      render();
+    }));
+    document.querySelectorAll(".activate-plan").forEach((button) => button.addEventListener("click", () => {
+      const plan = button.dataset.plan;
+      if (plan !== "plus" && plan !== "pro") return;
+      state.settings.plan = plan;
+      state.settings.premiumActive = true;
+      state.settings.planName = planLabel(plan);
+      state.settings.aiLimit = aiLimitForPlan(plan);
+      save();
+      render();
+    }));
     document.querySelectorAll(".notify-now").forEach((button) => button.addEventListener("click", requestNotifications));
     document.querySelector(".start-study-session")?.addEventListener("click", () => {
       state.ui.studySessionStep = 0;
       state.ui.studySessionCardIndex = 0;
       location.hash = "#session";
-      pushNotification("Lerneinheit gestartet", "StudyUp führt dich durch Fehler, Karten und Mini-Check.");
+      pushNotification("Lerneinheit gestartet", "Lynxly führt dich durch Fehler, Karten und Mini-Check.");
       save();
       render();
     });
@@ -1396,6 +1451,16 @@
     }
 
     if (route === "planner") {
+      document.querySelector(".planner-prev-month")?.addEventListener("click", () => {
+        state.ui.plannerMonthOffset = Number(state.ui.plannerMonthOffset || 0) - 1;
+        save();
+        render();
+      });
+      document.querySelector(".planner-next-month")?.addEventListener("click", () => {
+        state.ui.plannerMonthOffset = Number(state.ui.plannerMonthOffset || 0) + 1;
+        save();
+        render();
+      });
       document.querySelector("#toggle-event-form")?.addEventListener("click", () => {
         state.ui.showEventForm = !state.ui.showEventForm;
         save();
@@ -1503,7 +1568,7 @@
         const file = event.currentTarget.files?.[0];
         if (!file) return;
         state.ui.lastPhotoName = file.name;
-        pushNotification("Foto-Funktion kommt bald", "StudyUp speichert hier noch keine Karten aus Fotos.");
+        pushNotification("Foto-Funktion kommt bald", "Lynxly speichert hier noch keine Karten aus Fotos.");
         save();
         render();
       });
@@ -1571,7 +1636,7 @@
       document.querySelectorAll(".save-ai-flashcards").forEach((button) => button.addEventListener("click", () => {
         const answer = state.chat.find((message) => message.id === button.dataset.id)?.text || "";
         const question = lastUserMessageBefore(button.dataset.id);
-        state.flashcards.push({ id: uid("card"), subject: "KI", title: "StudyUp KI", question, answer, difficulty: 2, reviewCount: 0, source: "ai", published: false });
+        state.flashcards.push({ id: uid("card"), subject: "KI", title: "Lynxly AI", question, answer, difficulty: 2, reviewCount: 0, source: "ai", published: false });
         pushNotification("Karte gespeichert", "Die KI-Antwort wurde als Karte abgelegt.");
         save();
         render();
@@ -1603,7 +1668,7 @@
           state.ui.chatAttachmentName = "";
           save();
           render();
-          const answer = await askStudyUpAI(message || attachment, attachment);
+          const answer = await askLynxlyAI(message || attachment, attachment);
           const placeholder = [...state.chat].reverse().find((msg) => msg.role === "bot" && msg.text === "Ich denke kurz nach ...");
           if (placeholder) placeholder.text = answer;
           state.settings.aiQuestionsUsed += 1;
@@ -1615,16 +1680,6 @@
     }
 
     if (route === "premium") {
-      document.querySelectorAll(".activate-plan").forEach((button) => button.addEventListener("click", () => {
-        const plan = button.dataset.plan;
-        if (plan !== "plus" && plan !== "pro") return;
-        state.settings.plan = plan;
-        state.settings.premiumActive = true;
-        state.settings.planName = planLabel(plan);
-        state.settings.aiLimit = aiLimitForPlan(plan);
-        save();
-        render();
-      }));
       document.querySelectorAll(".setting-control").forEach((control) => control.addEventListener("change", () => {
         if (!isPlus()) return;
         state.settings[control.name] = control.value;
@@ -1640,7 +1695,6 @@
     save();
     render();
   });
-  notificationButton?.addEventListener("click", requestNotifications);
   settingsButton?.addEventListener("click", () => {
     location.hash = "#settings";
   });

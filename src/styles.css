@@ -13,6 +13,11 @@
   --good: #10b981;
   --ok: #f59e0b;
   --bad: #ef4444;
+  --mascot-fur: #f6c978;
+  --mascot-fur-deep: #d99136;
+  --mascot-cheek: #fff4df;
+  --mascot-ink: #243244;
+  --mascot-nose: #334155;
   --shadow: 0 18px 50px rgba(17, 24, 39, 0.09);
   --shadow-soft: 0 10px 28px rgba(17, 24, 39, 0.06);
 }
@@ -25,6 +30,11 @@ html[data-theme="dark"] {
   --panel: #121b2a;
   --panel-2: #172235;
   --white: #ffffff;
+  --mascot-fur: #dca555;
+  --mascot-fur-deep: #b7792c;
+  --mascot-cheek: #2b3546;
+  --mascot-ink: #f1f5f9;
+  --mascot-nose: #f8fafc;
   --shadow: 0 18px 50px rgba(0, 0, 0, 0.38);
   --shadow-soft: 0 10px 28px rgba(0, 0, 0, 0.28);
 }
@@ -42,7 +52,37 @@ button { color: inherit; }
 .brand small { color: var(--muted); display: block; font-size: 0.74rem; }
 .logo { align-items: center; background: linear-gradient(145deg, var(--accent), var(--green)); border-radius: 10px; display: grid; height: 42px; place-items: center; width: 42px; box-shadow: 0 10px 26px color-mix(in srgb, var(--accent) 28%, transparent); }
 .logo svg { fill: none; height: 29px; stroke: var(--white); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.4; width: 29px; }
+.brand-logo { background: #05070d; border-radius: 13px; overflow: hidden; }
+.brand-logo img { display: block; height: 100%; object-fit: cover; width: 100%; }
+.streak-pill { align-items: center; background: color-mix(in srgb, #fff7ed 86%, var(--panel)); border: 1px solid color-mix(in srgb, #fb923c 34%, var(--line)); border-radius: 999px; box-shadow: 0 8px 20px rgba(249, 115, 22, 0.14); color: #ea580c; display: inline-flex; flex: 0 0 auto; gap: 4px; min-height: 32px; padding: 4px 9px 4px 6px; }
+.streak-pill strong { color: #9a3412; font-size: 0.92rem; line-height: 1; }
+.streak-flame { height: 21px; width: 21px; }
+.flame-main { fill: #f97316; }
+.flame-core { fill: #fef3c7; }
+html[data-theme="dark"] .streak-pill { background: color-mix(in srgb, #431407 52%, var(--panel)); border-color: color-mix(in srgb, #fb923c 42%, var(--line)); color: #fdba74; }
+html[data-theme="dark"] .streak-pill strong { color: #ffedd5; }
+.mascot { display: inline-grid; flex: 0 0 auto; place-items: center; }
+.mascot-face { border-radius: 16px; display: block; height: 58px; object-fit: cover; overflow: hidden; width: 58px; }
+.mascot-small .mascot-face { height: 42px; width: 42px; }
+.mascot-head { fill: var(--mascot-fur); stroke: var(--mascot-ink); stroke-linejoin: round; stroke-width: 2.6; }
+.mascot-tuft { fill: var(--mascot-fur-deep); stroke: var(--mascot-ink); stroke-linejoin: round; stroke-width: 2.4; }
+.mascot-cheek { fill: var(--mascot-cheek); stroke: color-mix(in srgb, var(--mascot-ink) 22%, transparent); stroke-width: 1.6; }
+.mascot-eye, .mascot-smile, .mascot-mark { fill: none; stroke: var(--mascot-ink); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.6; }
+.mascot-nose { fill: var(--mascot-nose); stroke: var(--mascot-ink); stroke-linejoin: round; stroke-width: 1.5; }
+.mascot-sparkle { fill: var(--green); stroke: var(--panel); stroke-linejoin: round; stroke-width: 1.2; }
+.brand-mascot { background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 16%, var(--panel)), color-mix(in srgb, var(--green) 16%, var(--panel))); border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line)); box-shadow: 0 10px 26px color-mix(in srgb, var(--accent) 16%, transparent); }
+.logo.brand-mascot svg { fill: initial; height: 38px; stroke: initial; stroke-width: initial; width: 38px; }
+.mascot-card, .mascot-card-head, .mascot-empty { align-items: center; display: flex; gap: 12px; }
+.mascot-card { background: color-mix(in srgb, var(--accent) 8%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--line)); border-radius: 14px; color: var(--muted); line-height: 1.45; padding: 12px; }
+.mascot-card p { margin: 0; }
+.mascot-card-head { margin-bottom: -2px; }
+.mascot-empty { align-items: flex-start; }
+.mascot-floating .mascot-face { animation: lynxIdle 6.4s ease-in-out infinite; transform-origin: center bottom; }
+.mascot-floating .mascot-eye { animation: lynxBlink 7.2s ease-in-out infinite; transform-origin: center; }
 .top-actions { align-items: center; display: flex; gap: 8px; }
+.theme-icon-button { align-items: center; background: transparent; border: 0; color: var(--ink); cursor: pointer; display: inline-grid; font-size: 1.35rem; height: 38px; place-items: center; width: 38px; }
+.theme-icon-button:hover { color: var(--accent); transform: translateY(-1px); }
+.account-button { padding-right: 12px; }
 .top-icon-button { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; color: var(--muted); cursor: pointer; font-size: 0.78rem; font-weight: 800; min-height: 36px; padding: 0 10px; }
 .top-icon-button:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); color: var(--accent); }
 .sync-state { align-items: center; color: var(--muted); display: none; font-size: 0.84rem; gap: 8px; }
@@ -127,6 +167,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .grade-row.bad .grade-bubble { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
 .planner-layout { grid-template-columns: 1fr; }
 .calendar-panel { overflow: hidden; }
+.calendar-header { align-items: center; gap: 12px; }
+.calendar-header-actions { align-items: center; display: flex; gap: 8px; }
 .round-add { background: var(--accent); border: 0; border-radius: 50%; box-shadow: 0 12px 28px color-mix(in srgb, var(--accent) 26%, transparent); color: var(--white); cursor: pointer; font-size: 1.45rem; font-weight: 700; height: 44px; line-height: 1; width: 44px; }
 .weekdays, .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
 .weekdays { color: var(--muted); font-size: 0.74rem; font-weight: 900; margin-bottom: 8px; text-align: center; }
@@ -233,6 +275,12 @@ details p { color: var(--muted); line-height: 1.5; margin-bottom: 0; }
   grid-template-columns: 1fr;
 }
 
+.plan-stack {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr !important;
+}
+
 .plan-card {
   border-radius: 16px;
   min-height: 100%;
@@ -319,6 +367,11 @@ details p { color: var(--muted); line-height: 1.5; margin-bottom: 0; }
 @media (max-width: 420px) {
   .top-icon-button { font-size: 0.7rem; padding: 0 8px; }
   .brand small { display: none; }
+  .brand { gap: 7px; }
+  .brand-mascot { height: 38px; width: 38px; }
+  .logo.brand-mascot svg { height: 34px; width: 34px; }
+  .streak-pill { min-height: 30px; padding: 4px 8px 4px 5px; }
+  .streak-flame { height: 19px; width: 19px; }
   .premium-hero { padding: 18px; }
   .hero-score strong { font-size: 2.5rem; }
   .calendar-cell { padding: 5px; }
@@ -326,6 +379,14 @@ details p { color: var(--muted); line-height: 1.5; margin-bottom: 0; }
   .status-deck-grid { gap: 8px; }
   .status-deck { min-height: 120px; padding: 10px; }
   .status-deck strong { font-size: 1.8rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mascot-floating .mascot-face,
+  .mascot-floating .mascot-eye,
+  .page-enter > * {
+    animation: none !important;
+  }
 }
 
 @keyframes pageIn {
@@ -336,6 +397,17 @@ details p { color: var(--muted); line-height: 1.5; margin-bottom: 0; }
 @keyframes softPulse {
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 24%, transparent); }
   100% { box-shadow: 0 0 0 10px transparent; }
+}
+
+@keyframes lynxIdle {
+  0%, 86%, 100% { transform: translateY(0) scale(1); }
+  90% { transform: translateY(-2px) scale(1.015); }
+  94% { transform: translateY(0) scale(1); }
+}
+
+@keyframes lynxBlink {
+  0%, 88%, 94%, 100% { stroke-width: 2.6; }
+  91% { stroke-width: 4.3; }
 }
 
 .page-enter > * {
@@ -717,7 +789,8 @@ textarea:disabled {
 }
 
 .is-locked .bottom-nav,
-.is-locked .top-actions {
+.is-locked .top-actions,
+.is-locked .streak-pill {
   display: none;
 }
 
@@ -742,6 +815,12 @@ textarea:disabled {
   font-size: clamp(2.6rem, 14vw, 5rem);
   line-height: 0.95;
   margin: 0;
+}
+
+.onboarding-logo p {
+  color: var(--muted);
+  font-weight: 800;
+  margin: 8px 0 0;
 }
 
 .onboarding-card {
@@ -1255,6 +1334,182 @@ html[data-theme="dark"] .grades-phone {
   max-width: 920px;
 }
 
+.account-page {
+  max-width: 980px;
+}
+
+.settings-tabs {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow-soft);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 8px;
+}
+
+.settings-tab {
+  background: transparent;
+  border: 0;
+  border-radius: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 950;
+  min-height: 46px;
+}
+
+.settings-tab.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.account-profile-card {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: auto 1fr;
+}
+
+.account-logo-wrap {
+  background: #05070d;
+  border-radius: 18px;
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+
+.account-profile-card h2 {
+  font-size: clamp(1.6rem, 7vw, 2.6rem);
+  line-height: 1;
+  margin: 4px 0 8px;
+}
+
+.account-profile-card p {
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.account-detail-grid {
+  display: grid;
+  gap: 10px;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.account-detail-grid article {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  min-height: 82px;
+  padding: 13px;
+}
+
+.account-detail-grid span,
+.design-option small {
+  color: var(--muted);
+  display: block;
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.account-detail-grid strong {
+  display: block;
+  font-size: 1rem;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+
+.design-toggle-button {
+  align-items: center;
+  background: linear-gradient(145deg, var(--panel), color-mix(in srgb, var(--accent) 9%, var(--panel)));
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  border-radius: 16px;
+  box-shadow: var(--shadow-soft);
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  font-size: 1rem;
+  font-weight: 950;
+  gap: 10px;
+  justify-content: center;
+  min-height: 58px;
+  padding: 0 18px;
+}
+
+.design-settings-panel {
+  display: none;
+}
+
+.design-settings-panel.show {
+  display: grid;
+  gap: 14px;
+}
+
+.interactive-option-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.interactive-option-grid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.design-option {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  gap: 6px;
+  min-height: 92px;
+  padding: 12px;
+  text-align: left;
+}
+
+.design-option:hover:not(:disabled),
+.design-option.active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.design-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.design-option i {
+  background: var(--swatch);
+  border-radius: 999px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--swatch) 18%, transparent);
+  display: block;
+  height: 22px;
+  width: 22px;
+}
+
+.danger-logout {
+  align-items: center;
+  background: color-mix(in srgb, var(--bad) 14%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--line));
+  border-radius: 16px;
+  color: var(--bad);
+  cursor: pointer;
+  display: flex;
+  font-weight: 950;
+  gap: 10px;
+  justify-content: center;
+  min-height: 56px;
+  padding: 0 18px;
+}
+
+.account-plan-panel {
+  display: grid;
+  gap: 14px;
+}
+
 .coach-sentence-card {
   background: linear-gradient(145deg, var(--panel), color-mix(in srgb, var(--accent) 10%, var(--panel)));
   border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
@@ -1408,6 +1663,11 @@ html[data-theme="dark"] .grades-phone {
     gap: 5px;
   }
 
+  .theme-icon-button {
+    height: 34px;
+    width: 34px;
+  }
+
   .top-icon-button {
     min-height: 34px;
     padding: 0 8px;
@@ -1422,6 +1682,16 @@ html[data-theme="dark"] .grades-phone {
   }
 
   .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .account-detail-grid,
+  .interactive-option-grid,
+  .interactive-option-grid.two {
+    grid-template-columns: 1fr;
+  }
+
+  .account-profile-card {
     grid-template-columns: 1fr;
   }
 }
@@ -1656,6 +1926,10 @@ html[data-theme="dark"] .grades-phone {
   font-size: clamp(2.7rem, 12vw, 6rem);
   line-height: 0.95;
   margin: 0;
+}
+
+.ai-mascot-card {
+  max-width: 720px;
 }
 
 .ai-full-input {

@@ -30,7 +30,7 @@
     try {
       return mergeDefaults(defaults, JSON.parse(raw));
     } catch (error) {
-      console.warn("StudyUp konnte lokale Daten nicht lesen.", error);
+      console.warn("Lynxly konnte lokale Daten nicht lesen.", error);
       return defaults;
     }
   };

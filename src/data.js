@@ -4,6 +4,7 @@
       loggedIn: false,
       name: "",
       email: "",
+      password: "",
       region: "ch"
     },
     settings: {
@@ -61,7 +62,7 @@
         id: "fr-unit-1",
         title: "Französisch UNIT 1",
         subject: "Französisch",
-        author: "StudyUp Database",
+        author: "Lynxly Datenbank",
         description: "Grundwortschatz für Begrüßung, Familie und Schule.",
         freeCount: 5,
         totalCount: 18,
@@ -80,7 +81,7 @@
         id: "bio-cells",
         title: "Biologie Zellen",
         subject: "Biologie",
-        author: "StudyUp Database",
+        author: "Lynxly Datenbank",
         description: "Organellen, Zelltypen und Funktionen für kurze Wiederholung.",
         freeCount: 4,
         totalCount: 14,
@@ -115,6 +116,8 @@
       studySessionStep: 0,
       studySessionCardIndex: 0,
       mistakeFilter: "open",
+      settingsTab: "profile",
+      designOpen: false,
       aiOfflineMode: true,
       lastPhotoName: "",
       chatAttachmentName: ""

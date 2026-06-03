@@ -39,6 +39,12 @@
     return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.spark}</svg>`;
   };
 
+  const mascot = (extraClass = "") => `
+    <span class="mascot ${escapeHtml(extraClass)}" aria-hidden="true">
+      <img class="mascot-face" src="src/assets/lynxly-logo.png" alt="" />
+    </span>
+  `;
+
   const sectionTitle = (eyebrow, title) => `
     <section class="section-heading">
       <span>${escapeHtml(eyebrow)}</span>
@@ -50,11 +56,11 @@
     <article class="stat-card"><div class="stat-icon">${icon(iconName)}</div><div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(subtext)}</small></div></article>
   `;
 
-  const emptyState = (title, text) => `<div class="empty-state"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(text)}</p></div>`;
+  const emptyState = (title, text) => `<div class="empty-state mascot-empty">${mascot("mascot-small")}<div><strong>${escapeHtml(title)}</strong><p>${escapeHtml(text)}</p></div></div>`;
   const priorityClass = (priority) => priority === "Hoch" ? "danger" : priority === "Mittel" ? "warning" : "calm";
   const difficultyLabel = (difficulty) => Number(difficulty) >= 3 ? "Schlecht" : Number(difficulty) === 2 ? "Okay" : "Gut";
   const difficultyClass = (difficulty) => Number(difficulty) >= 3 ? "bad" : Number(difficulty) === 2 ? "ok" : "good";
 
-  window.StudyUpComponents = { escapeHtml, icon, sectionTitle, statCard, emptyState, priorityClass, difficultyLabel, difficultyClass };
+  window.StudyUpComponents = { escapeHtml, icon, mascot, sectionTitle, statCard, emptyState, priorityClass, difficultyLabel, difficultyClass };
 })();
 
