@@ -40,7 +40,7 @@ module.exports = async (req, res) => {
       },
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
-        instructions: "Du bist StudyUp KI, ein Lerncoach für Schüler. Erkläre Schritt für Schritt, stelle Rückfragen und gib Hinweise. Gib bei Mathe keine reine Endantwort ohne Erklärung.",
+        instructions: "Du bist Lynxly AI, ein Lerncoach für Schüler. Erkläre Schritt für Schritt, stelle Rückfragen und gib Hinweise. Gib bei Mathe keine reine Endantwort ohne Erklärung.",
         input: message
       })
     });
