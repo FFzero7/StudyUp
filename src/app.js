@@ -7,6 +7,7 @@
   const settingsButton = document.querySelector("#settings-button");
   const streakPill = document.querySelector("#streak-pill");
   const streakCount = document.querySelector("#streak-count");
+  const cardsNavBadge = document.querySelector("#cards-nav-badge");
   const logoutButton = document.querySelector("#logout-button");
   const C = window.StudyUpComponents;
   let state = window.StudyUpStorage.load();
@@ -122,6 +123,7 @@
     state.ui = { ...window.StudyUpSeed.ui, ...(state.ui || {}) };
     state.ui.selectedPartialGroup = state.ui.selectedPartialGroup || null;
     state.ui.plannerMonthOffset = Number(state.ui.plannerMonthOffset || 0);
+    state.ui.selectedPlannerDate = state.ui.selectedPlannerDate || todayIso();
     state.ui.cardStudyIndex = Number(state.ui.cardStudyIndex || 0);
     state.ui.studySessionStep = Number(state.ui.studySessionStep || 0);
     state.ui.studySessionCardIndex = Number(state.ui.studySessionCardIndex || 0);
@@ -230,6 +232,7 @@
     const system = currentSystem();
     document.title = "Lynxly";
     document.documentElement.dataset.theme = state.settings.theme;
+    document.documentElement.dataset.cardStyle = state.settings.cardStyle || "stacked";
     document.documentElement.lang = state.settings.language || system.language;
     document.body.classList.toggle("is-locked", !state.user.loggedIn);
     const accent = accentColors[state.settings.accent] || accentColors.blue;
@@ -240,6 +243,11 @@
     if (streakPill) {
       streakPill.title = `${streak} Tage Lernserie`;
       streakPill.setAttribute("aria-label", `${streak} Tage Lernserie`);
+    }
+    if (cardsNavBadge) {
+      const due = dueCards().length;
+      cardsNavBadge.textContent = String(due);
+      cardsNavBadge.hidden = due === 0;
     }
     if (themeIcon) themeIcon.innerHTML = state.settings.theme === "dark" ? "&#9728;" : "&#9790;";
     if (themeLabel) themeLabel.textContent = state.settings.theme === "dark" ? "Hell" : "Dunkel";
@@ -464,41 +472,52 @@
     const weak = weakestSubject();
     const tasks = studyTasksToday();
     const hasContent = state.subjects.length || state.flashcards.length || state.exams.length || state.homework.length || state.mistakes.length;
+    const upcoming = calendarItems().filter((item) => item.date >= todayIso()).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 2);
+    const dueCount = dueCards().length;
+    const openMistakeCount = openMistakes().length;
     return `
-      <section class="home-page today-dashboard">
-        <h1>Heute</h1>
-        <article class="coach-sentence-card">
-          <div class="mascot-card-head">${C.mascot("mascot-small mascot-floating")}<span>Lynxly sagt</span></div>
-          <strong>${C.escapeHtml(smartCoachSentence())}</strong>
-          <div class="coach-action-row">
-            <button class="primary-button start-study-session" type="button">${C.icon("clock")} 15-Minuten-Lerneinheit starten</button>
-            <a class="secondary-button" href="#mistakes">Fehlerbank</a>
+      <section class="home-page today-dashboard sleek-screen">
+        <div class="sleek-page-header">
+          <div>
+            <h1>Start</h1>
+            <p>Heute, ${formatDate(todayIso(), { day: "numeric", month: "long" })}</p>
           </div>
-        </article>
-        ${hasContent ? "" : `<article class="empty-state mascot-empty dashboard-empty">${C.mascot("mascot-small")}<div><strong>Neu hier?</strong><p>Füge deine ersten Noten, Karten oder Termine hinzu. Lynxly baut daraus deinen Lernplan.</p></div></article>`}
-        <div class="home-metric-row today-metrics">
-          <article><span>Notendurchschnitt</span><strong>${avg === null ? "-" : avg.toFixed(2)}</strong></article>
-          <article><span>Pluspunkte</span><strong>${state.subjects.some(subjectHasGrades) ? formatPlusPoints(points) : "-"}</strong></article>
         </div>
-        <div class="today-grid">
+
+        <article class="coach-sentence-card sleek-coach-card">
+          <span class="coach-label"><i></i>Coach Empfehlung</span>
+          <h2>${weak ? `Fokus auf ${C.escapeHtml(weak.name)}` : dueCount ? `${dueCount} Karte${dueCount === 1 ? "" : "n"} wiederholen` : "Heute kurz starten"}</h2>
+          <p>${C.escapeHtml(smartCoachSentence())}</p>
+          <button class="primary-button start-study-session sleek-primary-cta" type="button">
+            <span>15-Minuten-Lerneinheit starten</span><i></i>
+          </button>
+        </article>
+
+        ${hasContent ? "" : `<article class="empty-state mascot-empty dashboard-empty">${C.mascot("mascot-small")}<div><strong>Neu hier?</strong><p>Füge deine ersten Noten, Karten oder Termine hinzu. Lynxly baut daraus deinen Lernplan.</p></div></article>`}
+
+        <div class="home-metric-row today-metrics sleek-metrics">
+          <article><span>Durchschnitt</span><strong>${avg === null ? "–" : avg.toFixed(2)}</strong><small>Noten</small></article>
+          <article><span>Pluspunkte</span><strong>${state.subjects.some(subjectHasGrades) ? formatPlusPoints(points) : "–"}</strong><small>Schweiz</small></article>
+        </div>
+
+        <div class="sleek-section-title"><h2>Als Nächstes</h2><a href="#planner">Alle</a></div>
+        <div class="sleek-next-list">
+          ${upcoming.map((item) => `<a class="sleek-next-item" href="#planner"><span class="next-dot ${item.exam ? "exam" : item.homework ? "homework" : ""}"><i></i></span><div><strong>${C.escapeHtml(item.title)}</strong><small>${C.escapeHtml(item.subject)}</small></div><em>${formatDate(item.date, { weekday: "short" })}</em></a>`).join("") || `<article class="sleek-next-item empty"><span class="next-dot"><i></i></span><div><strong>Noch kein Termin</strong><small>Trage im Plan eine Prüfung oder Hausaufgabe ein.</small></div></article>`}
+        </div>
+
+        <div class="today-grid sleek-bottom-grid">
           <article class="focus-card today-main-card">
             <span>Heute zu tun</span>
             <h2>${tasks.length ? `${tasks.length} Lernschritt${tasks.length === 1 ? "" : "e"}` : "Alles ruhig"}</h2>
             <div class="today-task-list">
-              ${tasks.map((task) => `<a href="${task.href}"><strong>${C.escapeHtml(task.title)}</strong><small>${C.escapeHtml(task.subject)} - ${C.escapeHtml(task.kind)}</small></a>`).join("") || `<p class="muted-text">Noch keine Aufgaben für heute. Plane einen Termin, speichere Fehler oder starte mit Karten.</p>`}
+              ${tasks.slice(0, 3).map((task) => `<a href="${task.href}"><strong>${C.escapeHtml(task.title)}</strong><small>${C.escapeHtml(task.subject)} · ${C.escapeHtml(task.kind)}</small></a>`).join("") || `<p class="muted-text">Noch keine Aufgaben für heute. Plane einen Termin, speichere Fehler oder starte mit Karten.</p>`}
             </div>
           </article>
           <article class="focus-card">
-            <span>Nächstes</span>
-            <h2>${nextWork ? C.escapeHtml(nextWork.title) : (next ? C.escapeHtml(next.title) : "Kein Termin")}</h2>
-            <p>${nextWork || next ? `${C.escapeHtml((nextWork || next).subject)} - ${formatDate((nextWork || next).date)} - ${C.escapeHtml((nextWork || next).type)}` : "Wenn du Prüfungen, Hausaufgaben oder Termine einträgst, landen sie hier."}</p>
-            <a class="secondary-button" href="#planner">Plan öffnen</a>
-          </article>
-          <article class="focus-card">
-            <span>Schwächstes Fach</span>
-            <h2>${weak ? C.escapeHtml(weak.name) : "Noch offen"}</h2>
-            <p>${weak ? C.escapeHtml(weak.reason) : "Trage Noten ein oder speichere Fehler, damit Lynxly dich gezielter coachen kann."}</p>
-            <a class="secondary-button" href="${weak ? weak.href : "#grades"}">Ansehen</a>
+            <span>Fehlerbank</span>
+            <h2>${openMistakeCount ? `${openMistakeCount} offen` : "Keine offenen Fehler"}</h2>
+            <p>${weak ? C.escapeHtml(weak.reason) : "Speichere Fehler, damit Lynxly deine nächsten Übungen gezielter plant."}</p>
+            <a class="secondary-button" href="#mistakes">Öffnen</a>
           </article>
         </div>
       </section>
@@ -591,7 +610,7 @@
       <article class="subject-folder-row">
         <button class="grade-folder" data-id="${subject.id}" type="button">
           <span class="folder-icon">${C.icon("book")}</span>
-          <div><strong>${C.escapeHtml(subject.name)}</strong><small>${subject.grades.length} Einträge</small></div>
+          <div><strong>${C.escapeHtml(subject.name)}</strong><small>${subject.grades.length} Prüfung${subject.grades.length === 1 ? "" : "en"}</small></div>
           <em>${avg === null ? "–" : avg.toFixed(2)}</em>
           <b class="${points >= 0 ? "positive" : "negative"}">${formatPlusPoints(points)}</b>
         </button>
@@ -617,7 +636,21 @@
           <label>Gewichtung<input name="weight" type="number" min="0.5" max="4" step="0.5" value="1" /></label>
           <button class="primary-button" type="submit">Fach hinzufügen</button>
         </form>
-        ${state.ui.showSubjectForm ? "" : `<section class="grade-folder-list">${renderSubjectFolders()}</section>`}
+        ${state.ui.showSubjectForm ? "" : `
+          <section class="grade-summary-card">
+            <div class="grade-summary-top">
+              <div><span>Gesamtdurchschnitt</span><strong>${weightedAverage() === null ? "–" : weightedAverage().toFixed(2)}</strong></div>
+              <em>${state.subjects.length ? "Aktuelles Semester" : "Startklar"}</em>
+            </div>
+            <div class="grade-summary-stats">
+              <article><span>Pluspunkte</span><strong>${state.subjects.some(subjectHasGrades) ? formatPlusPoints(plusPointsTotal()) : "–"}</strong></article>
+              <article><span>Ziel</span><strong>${state.subjects.find((subject) => subject.targetGrade)?.targetGrade || "–"}</strong></article>
+              <article><span>Prüfungen</span><strong>${state.subjects.reduce((sum, subject) => sum + subject.grades.length, 0)}</strong></article>
+            </div>
+          </section>
+          <div class="sleek-section-title grade-list-title"><h2>Fächer</h2><span>${state.subjects.length}</span></div>
+          <section class="grade-folder-list">${renderSubjectFolders()}</section>
+        `}
       </section>
     `;
   };
@@ -730,7 +763,7 @@
         const day = index + 1;
         const iso = toIso(new Date(year, month, day));
         const dayItems = items.filter((item) => item.date === iso);
-        return `<div class="calendar-cell ${iso === todayIso() ? "today" : ""}"><strong>${day}</strong>${dayItems.slice(0, 3).map((item) => `<span class="${item.exam ? "exam-dot" : item.homework ? "homework-dot" : ""}">${C.escapeHtml(item.subject)}</span>`).join("")}</div>`;
+        return `<button class="calendar-cell ${iso === todayIso() ? "today" : ""} ${iso === state.ui.selectedPlannerDate ? "selected" : ""}" data-date="${iso}" type="button"><strong>${day}</strong>${dayItems.slice(0, 3).map((item) => `<span class="${item.exam ? "exam-dot" : item.homework ? "homework-dot" : ""}">${C.escapeHtml(item.subject)}</span>`).join("")}</button>`;
       })
     ];
     return `
@@ -747,19 +780,44 @@
   const renderPlanner = () => {
     const base = new Date();
     const shownMonth = toIso(new Date(base.getFullYear(), base.getMonth() + Number(state.ui.plannerMonthOffset || 0), 1));
+    const selectedDate = state.ui.selectedPlannerDate || todayIso();
+    const selectedItems = calendarItems().filter((item) => item.date === selectedDate);
+    const agendaItems = selectedItems.length ? selectedItems : calendarItems().filter((item) => item.date >= selectedDate).slice(0, 2);
     return `
-      ${C.sectionTitle("Plan", "Kalender")}
-      <section class="panel calendar-only-panel">
-        <div class="panel-header calendar-header"><div><span>${formatDate(shownMonth, { month: "long", year: "numeric" })}</span><h2>${state.ui.showEventForm ? "Eintrag hinzufügen" : "Kalender"}</h2></div><div class="calendar-header-actions"><button class="icon-button planner-prev-month" type="button" title="Vorheriger Monat">&#8592;</button><button class="icon-button planner-next-month" type="button" title="Nächster Monat">&#8594;</button><button class="round-add" id="toggle-event-form" type="button">${state.ui.showEventForm ? "×" : "+"}</button></div></div>
+      <section class="planner-page sleek-screen">
+        <div class="grade-page-header planner-page-header">
+          <h1>Plan</h1>
+          ${state.ui.showEventForm ? "" : `<button class="round-add planner-header-add" id="toggle-event-form" type="button">+</button>`}
+        </div>
+        <section class="panel calendar-only-panel ${state.ui.showEventForm ? "form-mode" : ""}">
+        ${state.ui.showEventForm ? `
+        <div class="form-only-header">
+          <div><span>Plan</span><h2>Eintrag hinzufügen</h2></div>
+          <button class="icon-button" id="toggle-event-form" type="button" title="Schließen">×</button>
+        </div>
+        ` : `<div class="sleek-month-selector">
+          <button class="planner-prev-month" type="button" title="Vorheriger Monat">&#8249;</button>
+          <strong>${formatDate(shownMonth, { month: "long", year: "numeric" })}</strong>
+          <button class="planner-next-month" type="button" title="Nächster Monat">&#8250;</button>
+        </div>`}
       ${state.ui.showEventForm ? "" : renderCalendar()}
       <form id="event-form" class="calendar-entry-form ${state.ui.showEventForm ? "show" : ""}">
         <label>Eintrag<select name="kind"><option value="event">Termin</option><option value="exam">Prüfung</option><option value="homework">Hausaufgabe</option></select></label>
         <label>Fach<input name="subject" required placeholder="z. B. Französisch" /></label>
         <label>Titel<input name="title" required placeholder="z. B. UNIT 1" /></label>
-        <label>Datum<input name="date" required type="date" value="${todayIso()}" /></label>
+        <label>Datum<input name="date" required type="date" value="${C.escapeHtml(state.ui.selectedPlannerDate || todayIso())}" /></label>
         <label class="toggle-field"><input name="autoPlan" type="checkbox" value="on" /><span>Automatische Lerntermine</span><small>Lynxly trägt Wiederholen, Üben, Karteikarten und Mini-Test bis zum Datum ein.</small></label>
         <button class="primary-button" type="submit">Eintragen</button>
       </form>
+      </section>
+      ${state.ui.showEventForm ? "" : `
+        <section class="planner-agenda">
+          <div class="sleek-section-title"><h2>${formatDate(selectedDate, { weekday: "long", day: "numeric", month: "short" })}</h2><span>${selectedDate === todayIso() ? "Heute" : (selectedItems.length ? `${selectedItems.length} Eintrag${selectedItems.length === 1 ? "" : "e"}` : "Keine Einträge")}</span></div>
+          <div class="planner-agenda-list">
+            ${agendaItems.map((item) => `<article class="agenda-card ${item.exam ? "exam" : item.homework ? "homework" : ""}"><div><strong>${C.escapeHtml(item.title)}</strong><small>${C.escapeHtml(item.subject)} · ${formatDate(item.date, { weekday: "short", day: "numeric", month: "short" })}</small></div><em>${C.escapeHtml(item.type)}</em></article>`).join("") || `<article class="agenda-card empty"><div><strong>An diesem Tag ist nichts geplant</strong><small>Drücke +, um für diesen Tag einen Termin einzutragen.</small></div></article>`}
+          </div>
+        </section>
+      `}
       </section>
     `;
   };
@@ -771,8 +829,19 @@
 
   const personalCards = () => state.flashcards.filter((card) => card.source !== "database");
   const recommendedPack = () => filteredLibrary()[0] || state.cardLibrary[0];
-  const renderStack = (title, subtitle, count, kind, actionText) => `
-    <button class="quizlet-large-stack" data-stack="${kind}" type="button">
+  const personalDecks = () => {
+    const groups = new Map();
+    personalCards().forEach((card) => {
+      const title = card.title || card.subject || "Eigene Karten";
+      const current = groups.get(title) || { title, subject: card.subject || title, cards: [] };
+      current.cards.push(card);
+      groups.set(title, current);
+    });
+    return [...groups.values()].sort((a, b) => b.cards.length - a.cards.length);
+  };
+
+  const renderStack = (title, subtitle, count, kind, actionText, extra = "") => `
+    <button class="quizlet-large-stack" data-stack="${kind}" ${extra} type="button">
       <div class="big-card-stack"><i></i><i></i><i></i></div>
       <strong>${C.escapeHtml(title)}</strong>
       <span>${C.escapeHtml(subtitle)}</span>
@@ -799,7 +868,12 @@
 
   const activeStudyCards = () => {
     if (state.ui.cardStudyMode === "due") return dueCards();
-    if (state.ui.cardStudyMode === "personal") return state.flashcards.filter((card) => card.source !== "database").map((card) => ({ ...card, ...cardScheduleFor(card.id) }));
+    if (state.ui.cardStudyMode === "personal") {
+      return state.flashcards
+        .filter((card) => card.source !== "database")
+        .filter((card) => !state.ui.selectedCardSubject || (card.title || card.subject) === state.ui.selectedCardSubject || card.subject === state.ui.selectedCardSubject)
+        .map((card) => ({ ...card, ...cardScheduleFor(card.id) }));
+    }
     const pack = recommendedPack();
     if (!pack) return [];
     const limit = isPlus() ? pack.cards.length : Math.min(pack.freeCount || pack.cards.length, pack.cards.length);
@@ -861,29 +935,31 @@
   const renderCards = () => {
     if (state.ui.cardStudyOpen) return renderCardStudyView();
     if (state.ui.cardCreateOpen) return renderCardCreatePanel();
-    const pack = recommendedPack();
     const personal = personalCards();
     const dueCount = dueCards().length;
-    const visibleCards = (state.ui.selectedCardSubject ? state.flashcards.filter((card) => card.subject === state.ui.selectedCardSubject) : state.flashcards).slice(0, 8);
-    const activeCard = visibleCards[0];
+    const mistakeCount = openMistakes().length;
+    const recentDecks = personalDecks().slice(0, 5);
     return `
-      ${C.sectionTitle("Karten", "Karten")}
-      <div class="coach-action-row cards-toolbar"><a class="secondary-button" href="#mistakes">Fehlerbank öffnen</a></div>
-      <section class="cards-search-panel">
-        <div class="search-box">${C.icon("search")}<input id="card-search" placeholder="Karten-Datenbank durchsuchen" value="${C.escapeHtml(state.ui.cardSearch || "")}" /></div>
+      <section class="cards-page sleek-screen">
+        <div class="grade-page-header cards-page-header">
+          <h1>Karten</h1>
+          <button class="round-add cards-header-add" id="toggle-card-create" type="button">+</button>
+        </div>
+      <section class="card-stack-board cards-main-stacks">
+        ${renderStack("Heute fällig", "Spaced Repetition", dueCount, "due", dueCount ? "Starten" : "Leer")}
+        ${renderStack("Fehlerbank", "Offene Fehler wiederholen", mistakeCount, "mistakes", "Öffnen")}
       </section>
-      <section class="card-stack-board">
-        ${renderStack("Persönliche Karten", "Nur für dich", personal.length, "personal", "Öffnen")}
-        ${renderStack(pack ? pack.title : "Empfohlen", pack ? pack.subject : "Datenbank", pack ? pack.totalCount : 0, "recommended", "Laden")}
-        ${dueCount ? renderStack("Heute fällig", "Spaced Repetition", dueCount, "due", "Starten") : ""}
+      <div class="sleek-section-title cards-recent-title"><h2>Zuletzt genutzt</h2><span>${recentDecks.length}</span></div>
+      <section class="recent-deck-list">
+        ${recentDecks.map((deck) => `
+          <button class="recent-deck-row" data-stack="personal" data-subject="${C.escapeHtml(deck.title)}" type="button">
+            <div class="mini-deck-stack"><i></i><i></i><i></i></div>
+            <div><strong>${C.escapeHtml(deck.title)}</strong><small>${C.escapeHtml(deck.subject)} · persönlicher Stapel</small></div>
+            <em>${deck.cards.length}</em>
+          </button>
+        `).join("") || C.emptyState("Noch keine Stapel", "Drücke auf + und erstelle z. B. einen Stapel „Biologie Kl.1“.")}
       </section>
-      <section class="flashcard-study-area">
-        ${renderStudyCard(activeCard)}
       </section>
-      <section class="panel card-results">
-        ${visibleCards.map((card) => `<article class="mini-card ${C.difficultyClass(card.difficulty)}"><span>${C.difficultyLabel(card.difficulty)}</span><h3>${C.escapeHtml(card.question)}</h3><p>${C.escapeHtml(card.answer)}</p><small>${C.escapeHtml(card.subject)} · ${card.source === "ai" ? "AI" : card.source === "database" ? "Datenbank" : "Privat"}</small></article>`).join("") || C.emptyState("Keine Karten", "Drücke auf + und erstelle Karten.")}
-      </section>
-      <button class="floating-create-button" id="toggle-card-create" type="button">+</button>
     `;
   };
 
@@ -1025,7 +1101,6 @@
       <section class="ai-full-page">
         <h1>Lynxly AI</h1>
         <div class="mascot-card ai-mascot-card">${C.mascot("mascot-small")}<p>Lynxly: dein smarter Lerncoach. Ich erkläre ruhig, stelle Rückfragen und helfe dir beim nächsten Schritt.</p></div>
-        <div class="ai-status-pill ${state.ui.aiOfflineMode ? "offline" : "online"}">${state.ui.aiOfflineMode ? "Offline-Modus" : "Online KI aktiv"}</div>
         <section class="ai-window">
           <div class="ai-output">
             ${messages.map((msg) => `<article class="message ${msg.role === "user" ? "user" : "bot"}"><p>${C.escapeHtml(msg.text)}</p>${msg.role === "bot" && msg.id !== "intro" ? `<div class="message-actions"><button class="save-ai-flashcards" data-id="${msg.id}" type="button">Als Karten</button><button class="save-ai-mistake" data-id="${msg.id}" type="button">Als Fehler</button><button class="save-ai-task" data-id="${msg.id}" type="button">Als Aufgabe</button></div>` : ""}</article>`).join("")}
@@ -1045,6 +1120,15 @@
         </section>
       </section>
     `;
+  };
+
+  const scrollAiConversation = () => {
+    requestAnimationFrame(() => {
+      const output = document.querySelector(".ai-output");
+      if (output) output.scrollTop = output.scrollHeight;
+      document.querySelector(".ai-window")?.scrollIntoView({ block: "end", behavior: "auto" });
+      document.querySelector("#chat-input")?.focus({ preventScroll: true });
+    });
   };
 
   const renderPlanCard = ({ id, title, position, price, features, badge, tone }) => {
@@ -1176,7 +1260,8 @@
     app.innerHTML = state.user.loggedIn ? views[route]() : renderOnboarding();
     requestAnimationFrame(() => app.classList.add("page-enter"));
     bindEvents(route);
-    window.scrollTo({ top: 0, behavior: "auto" });
+    if (route === "bot") scrollAiConversation();
+    else window.scrollTo({ top: 0, behavior: "auto" });
   };
 
   const bindEvents = (route) => {
@@ -1466,6 +1551,11 @@
         save();
         render();
       });
+      document.querySelectorAll(".calendar-cell[data-date]").forEach((button) => button.addEventListener("click", () => {
+        state.ui.selectedPlannerDate = button.dataset.date || todayIso();
+        save();
+        render();
+      }));
       document.querySelector("#event-form")?.addEventListener("submit", (event) => {
         event.preventDefault();
         const data = formData(event.currentTarget);
@@ -1501,11 +1591,16 @@
           }
         }, 220);
       });
-      document.querySelectorAll(".quizlet-large-stack").forEach((button) => button.addEventListener("click", () => {
+      document.querySelectorAll(".quizlet-large-stack, .recent-deck-row").forEach((button) => button.addEventListener("click", () => {
+        if (button.dataset.stack === "mistakes") {
+          location.hash = "#mistakes";
+          render();
+          return;
+        }
         state.ui.cardStudyMode = button.dataset.stack;
         state.ui.cardStudyOpen = true;
         state.ui.cardStudyIndex = 0;
-        state.ui.selectedCardSubject = button.dataset.stack === "personal" ? "" : state.ui.selectedCardSubject;
+        state.ui.selectedCardSubject = button.dataset.subject || (button.dataset.stack === "personal" ? "" : state.ui.selectedCardSubject);
         save();
         render();
       }));
