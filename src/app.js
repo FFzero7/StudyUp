@@ -8,15 +8,50 @@
   const streakPill = document.querySelector("#streak-pill");
   const streakCount = document.querySelector("#streak-count");
   const cardsNavBadge = document.querySelector("#cards-nav-badge");
+  const xpPill = document.querySelector("#xp-pill");
+  const xpWeekCount = document.querySelector("#xp-week-count");
+  const xpToastLayer = document.querySelector("#xp-toast-layer");
+  const xpLive = document.querySelector("#xp-live");
+  const progressFab = document.querySelector("#progress-fab");
   const logoutButton = document.querySelector("#logout-button");
   const C = window.StudyUpComponents;
   let state = window.StudyUpStorage.load();
   let cardSearchTimer = null;
 
-  const routes = ["dashboard", "grades", "planner", "cards", "mistakes", "session", "bot", "premium", "settings"];
+  const routes = ["dashboard", "grades", "planner", "cards", "mistakes", "progress", "session", "bot", "premium", "settings"];
   const accentColors = { blue: "#2563eb", green: "#10b981", violet: "#7c3aed", coral: "#f97316" };
   const subjectChoices = ["Mathe", "Deutsch", "Französisch", "Geschichte", "BG", "Musik", "Biologie", "Geographie", "Latein", "Englisch"];
   const planSteps = ["Wiederholen", "Üben", "Karteikarten", "Mini-Test", "Fehleranalyse", "Prüfungssimulation"];
+  const levelDefinitions = [
+    { level: 1, title: "Curious Lynx", min: 0, next: 250 },
+    { level: 2, title: "Focus Lynx", min: 250, next: 650 },
+    { level: 3, title: "Sharp Lynx", min: 650, next: 1250 },
+    { level: 4, title: "Study Hunter", min: 1250, next: 2100 },
+    { level: 5, title: "Exam Master", min: 2100, next: 3200 }
+  ];
+  const badgeDefinitions = [
+    { id: "first-step", title: "First Step", text: "Erste Lerneinheit abgeschlossen" },
+    { id: "mistake-fixer", title: "Mistake Fixer", text: "10 Fehler behoben" },
+    { id: "card-master", title: "Card Master", text: "100 Karten wiederholt" },
+    { id: "exam-ready", title: "Exam Ready", text: "Vor einer Prüfung gelernt" },
+    { id: "comeback-lynx", title: "Comeback Lynx", text: "Ein schwaches Fach verbessert" },
+    { id: "planner-pro", title: "Planner Pro", text: "Eine volle Lernwoche geplant" },
+    { id: "focus-mode", title: "Focus Mode", text: "5 Lerneinheiten geschafft" }
+  ];
+  const questTemplates = [
+    { id: "cards", title: "5 Karten wiederholen", metric: "cards", target: 5, href: "#cards" },
+    { id: "mistakes", title: "1 Fehler beheben", metric: "mistakes", target: 1, href: "#mistakes" },
+    { id: "sessions", title: "1 Lerneinheit abschließen", metric: "sessions", target: 1, href: "#session" }
+  ];
+  const leaderboardCategory = { label: "XP", field: "weeklyXp", unit: "XP", note: "diese Woche gelernt" };
+  const leagueTiers = [
+    { id: "snow", name: "Snow Lynx League", min: 0 },
+    { id: "forest", name: "Forest Lynx League", min: 250 },
+    { id: "alpine", name: "Alpine Lynx League", min: 650 },
+    { id: "shadow", name: "Shadow Lynx League", min: 1250 },
+    { id: "northern", name: "Northern Lynx League", min: 2100 }
+  ];
+  const classLeagueCategory = { label: "XP", field: "weeklyXp", unit: "XP", note: "diese Woche gelernt" };
 
   const uid = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const copy = (value) => JSON.parse(JSON.stringify(value));
@@ -25,6 +60,12 @@
   const todayIso = () => toIso(new Date());
   const dateObject = (iso) => new Date(`${iso}T12:00:00`);
   const monthKey = () => todayIso().slice(0, 7);
+  const weekKey = (iso = todayIso()) => {
+    const date = dateObject(iso || todayIso());
+    const weekday = date.getDay() || 7;
+    date.setDate(date.getDate() - weekday + 1);
+    return toIso(date);
+  };
   const save = () => window.StudyUpStorage.save(state);
   const formData = (form) => Object.fromEntries(new FormData(form).entries());
   const normalizePartialGrade = (grade) => ({
@@ -61,10 +102,324 @@
     explanation: mistake.explanation || "",
     createdDate: mistake.createdDate || todayIso(),
     reviewStatus: mistake.reviewStatus || "open",
+    reviewedAt: mistake.reviewedAt || "",
+    fixedAt: mistake.fixedAt || (mistake.reviewStatus === "fixed" ? (mistake.createdDate || todayIso()) : ""),
     source: mistake.source || "manuell"
   });
   const aiLimitForPlan = (plan) => ({ free: 10, plus: 300, pro: 1000 })[plan] || 10;
   const planLabel = (plan) => ({ free: "Free", plus: "Plus", pro: "Pro" })[plan] || "Free";
+  const defaultWeeklyStats = () => ({
+    weekKey: weekKey(),
+    xp: 0,
+    cardsReviewed: 0,
+    mistakesFixed: 0,
+    mistakesReviewed: 0,
+    studySessions: 0,
+    studyDays: [],
+    studyTasksAdded: 0,
+    questsCompleted: 0
+  });
+  const defaultRecords = () => ({
+    bestWeeklyXp: 0,
+    bestCardsWeek: 0,
+    bestMistakesWeek: 0,
+    bestSessionsWeek: 0,
+    totalCardsReviewed: 0,
+    totalMistakesFixed: 0,
+    totalStudySessions: 0
+  });
+  const defaultFriends = () => copy(window.StudyUpSeed.friends || []);
+  const defaultChallenge = () => ({ ...window.StudyUpSeed.friendsChallenge, weekKey: weekKey() });
+  const defaultClassLeague = () => ({ ...copy(window.StudyUpSeed.classLeague || {}), weekKey: weekKey() });
+  const defaultWeeklyLeagueStats = () => ({
+    weekKey: weekKey(),
+    weeklyXp: 0,
+    cardsReviewed: 0,
+    mistakesFixed: 0,
+    studySessions: 0,
+    improved: 0
+  });
+  const tierForXp = (xp) => [...leagueTiers].reverse().find((tier) => Number(xp || 0) >= tier.min) || leagueTiers[0];
+  const tierById = (id) => leagueTiers.find((tier) => tier.id === id) || leagueTiers[1];
+  const makeDailyQuests = () => questTemplates.map((quest) => ({
+    ...quest,
+    progress: 0,
+    completed: false,
+    rewarded: false
+  }));
+  const levelForXp = (xp) => {
+    const total = Number(xp || 0);
+    return [...levelDefinitions].reverse().find((level) => total >= level.min) || levelDefinitions[0];
+  };
+  const nextLevelFor = (level) => levelDefinitions.find((item) => item.level === level.level + 1) || null;
+  const levelProgress = () => {
+    const current = levelForXp(state.xpTotal);
+    const next = nextLevelFor(current);
+    const end = next ? next.min : current.next;
+    const span = Math.max(1, end - current.min);
+    const gained = Math.max(0, Number(state.xpTotal || 0) - current.min);
+    return { current, next, percent: Math.min(100, Math.round((gained / span) * 100)), remaining: Math.max(0, end - Number(state.xpTotal || 0)), end };
+  };
+  const normalizeQuest = (quest) => {
+    const template = questTemplates.find((item) => item.id === quest.id) || questTemplates[0];
+    const progress = Number(quest.progress || 0);
+    return {
+      ...template,
+      ...quest,
+      progress,
+      completed: Boolean(quest.completed || progress >= Number(quest.target || template.target)),
+      rewarded: Boolean(quest.rewarded)
+    };
+  };
+  const normalizeBadge = (badge) => {
+    if (typeof badge === "string") return { id: badge, unlockedAt: todayIso() };
+    return { id: badge.id, unlockedAt: badge.unlockedAt || todayIso() };
+  };
+  const updatePersonalRecords = () => {
+    state.personalRecords.bestWeeklyXp = Math.max(Number(state.personalRecords.bestWeeklyXp || 0), Number(state.weeklyStats.xp || 0));
+    state.personalRecords.bestCardsWeek = Math.max(Number(state.personalRecords.bestCardsWeek || 0), Number(state.weeklyStats.cardsReviewed || 0));
+    state.personalRecords.bestMistakesWeek = Math.max(Number(state.personalRecords.bestMistakesWeek || 0), Number(state.weeklyStats.mistakesFixed || 0));
+    state.personalRecords.bestSessionsWeek = Math.max(Number(state.personalRecords.bestSessionsWeek || 0), Number(state.weeklyStats.studySessions || 0));
+  };
+  const ensureGamification = () => {
+    const currentWeek = weekKey();
+    state.xpTotal = Number(state.xpTotal || 0);
+    state.level = levelForXp(state.xpTotal).level;
+    state.badges = (state.badges || []).map(normalizeBadge).filter((badge) => badge.id);
+    state.personalRecords = { ...defaultRecords(), ...(state.personalRecords || {}) };
+    if (!state.weeklyStats || state.weeklyStats.weekKey !== currentWeek) {
+      if (state.weeklyStats) {
+        state.personalRecords.bestWeeklyXp = Math.max(Number(state.personalRecords.bestWeeklyXp || 0), Number(state.weeklyStats.xp || 0));
+        state.personalRecords.bestCardsWeek = Math.max(Number(state.personalRecords.bestCardsWeek || 0), Number(state.weeklyStats.cardsReviewed || 0));
+        state.personalRecords.bestMistakesWeek = Math.max(Number(state.personalRecords.bestMistakesWeek || 0), Number(state.weeklyStats.mistakesFixed || 0));
+        state.personalRecords.bestSessionsWeek = Math.max(Number(state.personalRecords.bestSessionsWeek || 0), Number(state.weeklyStats.studySessions || 0));
+      }
+      state.weeklyStats = defaultWeeklyStats();
+      state.xpThisWeek = 0;
+    } else {
+      state.weeklyStats = { ...defaultWeeklyStats(), ...state.weeklyStats, weekKey: currentWeek };
+      state.weeklyStats.studyDays = Array.isArray(state.weeklyStats.studyDays) ? state.weeklyStats.studyDays : [];
+      state.xpThisWeek = Number(state.weeklyStats.xp || state.xpThisWeek || 0);
+    }
+    if (state.dailyQuestDate !== todayIso() || !Array.isArray(state.dailyQuests) || state.dailyQuests.length !== questTemplates.length) {
+      state.dailyQuestDate = todayIso();
+      state.dailyQuests = makeDailyQuests();
+    } else {
+      state.dailyQuests = state.dailyQuests.map(normalizeQuest);
+    }
+    state.friends = state.friends?.length ? state.friends : defaultFriends();
+    state.friendsChallenge = { ...defaultChallenge(), ...(state.friendsChallenge || {}), weekKey: currentWeek };
+    state.leaderboardPrivacy = {
+      visible: false,
+      displayName: state.user?.name || "Du",
+      ...(state.leaderboardPrivacy || {})
+    };
+    if (!state.leaderboardPrivacy.displayName) state.leaderboardPrivacy.displayName = state.user?.name || "Du";
+    if (!state.weeklyLeagueStats || state.weeklyLeagueStats.weekKey !== currentWeek) {
+      state.weeklyLeagueStats = defaultWeeklyLeagueStats();
+    } else {
+      state.weeklyLeagueStats = { ...defaultWeeklyLeagueStats(), ...state.weeklyLeagueStats, weekKey: currentWeek };
+    }
+    state.weeklyLeagueStats.weeklyXp = Math.max(Number(state.weeklyLeagueStats.weeklyXp || 0), Number(state.xpThisWeek || 0));
+    state.weeklyLeagueStats.cardsReviewed = Math.max(Number(state.weeklyLeagueStats.cardsReviewed || 0), Number(state.weeklyStats.cardsReviewed || 0));
+    state.weeklyLeagueStats.mistakesFixed = Math.max(Number(state.weeklyLeagueStats.mistakesFixed || 0), Number(state.weeklyStats.mistakesFixed || 0));
+    state.weeklyLeagueStats.studySessions = Math.max(Number(state.weeklyLeagueStats.studySessions || 0), Number(state.weeklyStats.studySessions || 0));
+    state.weeklyLeagueStats.improved = Math.max(Number(state.weeklyLeagueStats.improved || 0), Math.round(Number(state.xpThisWeek || 0) / 25));
+    const oldClassWeek = state.classLeague?.weekKey || "";
+    state.classLeague = { ...defaultClassLeague(), ...(state.classLeague || {}), weekKey: currentWeek };
+    if (oldClassWeek && oldClassWeek !== currentWeek) state.classLeague.bonusAwarded = false;
+    state.classLeague.goals = {
+      cardsReviewed: 400,
+      mistakesFixed: 80,
+      studySessions: 40,
+      ...(state.classLeague.goals || {})
+    };
+    state.classLeague.classmates = state.classLeague.classmates?.length ? state.classLeague.classmates : copy(window.StudyUpSeed.classLeague.classmates);
+    state.classLeaguePrivacy = {
+      joined: false,
+      visible: false,
+      displayName: state.user?.name || "Du",
+      ...(state.classLeaguePrivacy || {})
+    };
+    if (!state.classLeaguePrivacy.displayName) state.classLeaguePrivacy.displayName = state.user?.name || "Du";
+    state.classLeagueDemo = state.classLeagueDemo !== false;
+    state.recentXpEvents = Array.isArray(state.recentXpEvents) ? state.recentXpEvents.slice(0, 12) : [];
+    state.leagueTier = state.leagueTier || state.classLeague.tier || "forest";
+    state.classCode = state.classCode || state.classLeague.classCode || "LYNX-2B";
+    state.classLeague.tier = state.leagueTier;
+    state.classLeague.classCode = state.classCode;
+    state.ui.progressTab = state.ui.progressTab || "me";
+    state.ui.leaderboardTab = "xp";
+    state.ui.classLeagueTab = "xp";
+    updatePersonalRecords();
+  };
+  const recordStudyDay = () => {
+    const today = todayIso();
+    if (!state.weeklyStats.studyDays.includes(today)) state.weeklyStats.studyDays.push(today);
+  };
+  const showXpToast = (amount, reason = "XP erhalten", options = {}) => {
+    const xp = Math.max(0, Number(amount || 0));
+    if (!xp) return;
+    const cleanReason = String(reason || "XP erhalten");
+    state.recentXpEvents = [
+      { id: uid("xp"), amount: xp, reason: cleanReason, date: new Date().toISOString() },
+      ...(state.recentXpEvents || [])
+    ].slice(0, 12);
+    if (xpLive) xpLive.textContent = `${xp} XP erhalten: ${cleanReason}`;
+    if (xpPill) {
+      xpPill.classList.remove("gain");
+      void xpPill.offsetWidth;
+      xpPill.classList.add("gain");
+    }
+    if (!xpToastLayer) return;
+    const toast = document.createElement("div");
+    toast.className = `xp-toast ${options.levelUp ? "level-up" : ""}`;
+    toast.setAttribute("role", "status");
+    toast.innerHTML = `<strong>+${xp} XP</strong><span>${C.escapeHtml(cleanReason)}</span><i aria-hidden="true"></i>`;
+    xpToastLayer.appendChild(toast);
+    window.setTimeout(() => toast.remove(), options.levelUp ? 1800 : 1250);
+  };
+  const showLevelUpToast = (level) => {
+    const name = level?.title || "Sharp Lynx";
+    if (xpLive) xpLive.textContent = `Level up! Du bist jetzt ${name}.`;
+    if (!xpToastLayer) return;
+    const toast = document.createElement("div");
+    toast.className = "xp-toast level-up-toast";
+    toast.setAttribute("role", "status");
+    toast.innerHTML = `${C.mascot("mascot-small")}<div><strong>Level up!</strong><span>Du bist jetzt ${C.escapeHtml(name)}.</span></div>`;
+    xpToastLayer.appendChild(toast);
+    window.setTimeout(() => toast.remove(), 2200);
+  };
+  const unlockBadge = (id) => {
+    if (state.badges.some((badge) => badge.id === id)) return;
+    state.badges.push({ id, unlockedAt: todayIso() });
+  };
+  const awardXp = (amount, reason = "XP erhalten") => {
+    ensureGamification();
+    const xp = Math.max(0, Number(amount || 0));
+    if (!xp) return;
+    const previousLevel = state.level;
+    state.xpTotal = Number(state.xpTotal || 0) + xp;
+    state.xpThisWeek = Number(state.xpThisWeek || 0) + xp;
+    state.weeklyStats.xp = Number(state.weeklyStats.xp || 0) + xp;
+    state.weeklyLeagueStats.weeklyXp = Number(state.weeklyLeagueStats.weeklyXp || 0) + xp;
+    state.weeklyLeagueStats.improved = Math.max(Number(state.weeklyLeagueStats.improved || 0), Math.round(Number(state.xpThisWeek || 0) / 25));
+    state.level = levelForXp(state.xpTotal).level;
+    state.leagueTier = tierForXp(state.xpThisWeek).id;
+    state.classLeague.tier = state.leagueTier;
+    recordStudyDay();
+    updatePersonalRecords();
+    showXpToast(xp, reason);
+    if (state.level > previousLevel) showLevelUpToast(levelForXp(state.xpTotal));
+  };
+  const addQuestProgress = (metric, amount = 1) => {
+    ensureGamification();
+    state.dailyQuests.forEach((quest) => {
+      if (quest.metric !== metric || quest.rewarded) return;
+      quest.progress = Math.min(Number(quest.target || 1), Number(quest.progress || 0) + Number(amount || 1));
+      quest.completed = quest.progress >= Number(quest.target || 1);
+      if (quest.completed && !quest.rewarded) {
+        quest.rewarded = true;
+        state.weeklyStats.questsCompleted = Number(state.weeklyStats.questsCompleted || 0) + 1;
+        awardXp(100, "Quest geschafft");
+      }
+    });
+  };
+  const classUserStats = () => ({
+    id: "you",
+    displayName: state.classLeaguePrivacy.visible ? (state.classLeaguePrivacy.displayName || "Du") : "Privat",
+    initials: state.classLeaguePrivacy.visible ? (state.classLeaguePrivacy.displayName || state.user.name || "D").slice(0, 1).toUpperCase() : "P",
+    private: !state.classLeaguePrivacy.visible,
+    weeklyXp: Number(state.weeklyLeagueStats.weeklyXp || 0),
+    cardsReviewed: Number(state.weeklyLeagueStats.cardsReviewed || 0),
+    mistakesFixed: Number(state.weeklyLeagueStats.mistakesFixed || 0),
+    studySessions: Number(state.weeklyLeagueStats.studySessions || 0),
+    improved: Number(state.weeklyLeagueStats.improved || 0),
+    tier: state.leagueTier || "forest"
+  });
+  const classTeamTotals = () => {
+    const own = classUserStats();
+    const demo = state.classLeague.classmates || [];
+    return {
+      cardsReviewed: demo.reduce((sum, item) => sum + Number(item.cardsReviewed || 0), 0) + own.cardsReviewed,
+      mistakesFixed: demo.reduce((sum, item) => sum + Number(item.mistakesFixed || 0), 0) + own.mistakesFixed,
+      studySessions: demo.reduce((sum, item) => sum + Number(item.studySessions || 0), 0) + own.studySessions
+    };
+  };
+  const checkClassBonus = () => {
+    if (!state.classLeaguePrivacy.joined) return;
+    const totals = classTeamTotals();
+    const goals = state.classLeague.goals || {};
+    const completed = totals.cardsReviewed >= Number(goals.cardsReviewed || 1)
+      && totals.mistakesFixed >= Number(goals.mistakesFixed || 1)
+      && totals.studySessions >= Number(goals.studySessions || 1);
+    if (completed && !state.classLeague.bonusAwarded) {
+      state.classLeague.bonusAwarded = true;
+      awardXp(100, "Klassenbonus");
+    }
+  };
+  const evaluateBadges = () => {
+    if (Number(state.personalRecords.totalStudySessions || 0) >= 1) unlockBadge("first-step");
+    if (Number(state.personalRecords.totalMistakesFixed || 0) >= 10) unlockBadge("mistake-fixer");
+    if (Number(state.personalRecords.totalCardsReviewed || 0) >= 100) unlockBadge("card-master");
+    if (Number(state.personalRecords.totalStudySessions || 0) >= 5) unlockBadge("focus-mode");
+    if (Number(state.weeklyStats.studyTasksAdded || 0) >= 7) unlockBadge("planner-pro");
+    if (state.exams.some((exam) => exam.date >= todayIso()) && Number(state.weeklyStats.studySessions || 0) > 0) unlockBadge("exam-ready");
+    if (state.subjects.some((subject) => subjectTrend(subject) === "Verbessert")) unlockBadge("comeback-lynx");
+  };
+  const trackStudyAction = (type, amount = 1) => {
+    ensureGamification();
+    const count = Math.max(1, Number(amount || 1));
+    if (type === "studySession") {
+      awardXp(50 * count, "Lerneinheit geschafft");
+      state.weeklyStats.studySessions = Number(state.weeklyStats.studySessions || 0) + count;
+      state.weeklyLeagueStats.studySessions = Number(state.weeklyLeagueStats.studySessions || 0) + count;
+      state.personalRecords.totalStudySessions = Number(state.personalRecords.totalStudySessions || 0) + count;
+      addQuestProgress("sessions", count);
+    }
+    if (type === "cardReviewed") {
+      awardXp(10 * count, "Karte gelernt");
+      state.weeklyStats.cardsReviewed = Number(state.weeklyStats.cardsReviewed || 0) + count;
+      state.weeklyLeagueStats.cardsReviewed = Number(state.weeklyLeagueStats.cardsReviewed || 0) + count;
+      state.personalRecords.totalCardsReviewed = Number(state.personalRecords.totalCardsReviewed || 0) + count;
+      addQuestProgress("cards", count);
+    }
+    if (type === "mistakeSaved") {
+      awardXp(10 * count, "Fehler gespeichert");
+    }
+    if (type === "mistakeReviewed") {
+      awardXp(20 * count, "Fehler wiederholt");
+      state.weeklyStats.mistakesReviewed = Number(state.weeklyStats.mistakesReviewed || 0) + count;
+    }
+    if (type === "mistakeFixed") {
+      awardXp(40 * count, "Fehler behoben");
+      state.weeklyStats.mistakesFixed = Number(state.weeklyStats.mistakesFixed || 0) + count;
+      state.weeklyLeagueStats.mistakesFixed = Number(state.weeklyLeagueStats.mistakesFixed || 0) + count;
+      state.personalRecords.totalMistakesFixed = Number(state.personalRecords.totalMistakesFixed || 0) + count;
+      addQuestProgress("mistakes", count);
+    }
+    if (type === "studyTaskAdded") {
+      awardXp(10 * count, "Planung erledigt");
+      state.weeklyStats.studyTasksAdded = Number(state.weeklyStats.studyTasksAdded || 0) + count;
+    }
+    state.weeklyLeagueStats.improved = Math.max(Number(state.weeklyLeagueStats.improved || 0), Math.round(Number(state.xpThisWeek || 0) / 25));
+    updatePersonalRecords();
+    evaluateBadges();
+    checkClassBonus();
+  };
+  const markMistakeFixed = (mistake) => {
+    if (!mistake) return;
+    if (!mistake.reviewedAt) {
+      mistake.reviewedAt = todayIso();
+      trackStudyAction("mistakeReviewed");
+    }
+    const wasFixed = mistake.reviewStatus === "fixed";
+    mistake.reviewStatus = "fixed";
+    if (!wasFixed && !mistake.fixedAt) {
+      mistake.fixedAt = todayIso();
+      trackStudyAction("mistakeFixed");
+    }
+  };
 
   const ensureCollections = () => {
     state.user = { ...window.StudyUpSeed.user, ...(state.user || {}) };
@@ -134,6 +489,7 @@
     state.ui.showMistakeForm = Boolean(state.ui.showMistakeForm);
     state.ui.showTargetGradeForm = Boolean(state.ui.showTargetGradeForm);
     state.ui.showPartialEntryForm = Boolean(state.ui.showPartialEntryForm);
+    ensureGamification();
     if (!state.ui.cleanedHundredthsTest) {
       state.subjects.forEach((subject) => {
         subject.grades = subject.grades.filter((grade) => grade.title !== "Hundertstel-Test");
@@ -222,6 +578,22 @@
     state.studyTasks = [{ id: uid("task"), subject: "Mathe", title: "Klammerregel wiederholen", date: todayIso(), done: false }];
     state.cardSchedule = {};
     state.streak = { current: 1, weeklySessions: 1, lastStudyDate: todayIso() };
+    state.xpTotal = 220;
+    state.xpThisWeek = 120;
+    state.level = 1;
+    state.weeklyStats = { ...defaultWeeklyStats(), xp: 120, cardsReviewed: 3, mistakesFixed: 1, mistakesReviewed: 1, studySessions: 1, studyDays: [todayIso()] };
+    state.personalRecords = { ...defaultRecords(), bestWeeklyXp: 120, bestCardsWeek: 3, bestMistakesWeek: 1, bestSessionsWeek: 1, totalCardsReviewed: 3, totalMistakesFixed: 1, totalStudySessions: 1 };
+    state.badges = [{ id: "first-step", unlockedAt: todayIso() }];
+    state.dailyQuestDate = todayIso();
+    state.dailyQuests = makeDailyQuests().map((quest) => quest.id === "sessions" ? { ...quest, progress: 1, completed: true, rewarded: true } : quest);
+    state.leaderboardPrivacy = { visible: false, displayName: state.user.name || "Du" };
+    state.weeklyLeagueStats = { ...defaultWeeklyLeagueStats(), weeklyXp: 120, cardsReviewed: 3, mistakesFixed: 1, studySessions: 1, improved: 5 };
+    state.classLeague = defaultClassLeague();
+    state.classLeaguePrivacy = { joined: false, visible: false, displayName: state.user.name || "Du" };
+    state.classLeagueDemo = true;
+    state.leagueTier = "snow";
+    state.classCode = "LYNX-2B";
+    state.recentXpEvents = [];
     state.ui.showMistakeForm = false;
     state.ui.cardCreateOpen = false;
     state.ui.studySessionStep = 0;
@@ -244,6 +616,11 @@
       streakPill.title = `${streak} Tage Lernserie`;
       streakPill.setAttribute("aria-label", `${streak} Tage Lernserie`);
     }
+    if (xpWeekCount) xpWeekCount.textContent = String(Number(state.xpThisWeek || 0));
+    if (xpPill) {
+      xpPill.title = `${Number(state.xpThisWeek || 0)} XP diese Woche`;
+      xpPill.setAttribute("aria-label", `${Number(state.xpThisWeek || 0)} XP diese Woche`);
+    }
     if (cardsNavBadge) {
       const due = dueCards().length;
       cardsNavBadge.textContent = String(due);
@@ -251,6 +628,7 @@
     }
     if (themeIcon) themeIcon.innerHTML = state.settings.theme === "dark" ? "&#9728;" : "&#9790;";
     if (themeLabel) themeLabel.textContent = state.settings.theme === "dark" ? "Hell" : "Dunkel";
+    if (progressFab) progressFab.hidden = !state.user.loggedIn;
   };
 
   const getRoute = () => {
@@ -260,8 +638,9 @@
   };
 
   const setActiveNav = (route) => {
-    const visibleRoute = { mistakes: "dashboard", session: "dashboard", premium: "dashboard", settings: "dashboard" }[route] || route;
+    const visibleRoute = { mistakes: "dashboard", progress: "dashboard", session: "dashboard", premium: "dashboard", settings: "dashboard" }[route] || route;
     navLinks.forEach((link) => link.classList.toggle("active", link.dataset.route === visibleRoute));
+    progressFab?.classList.toggle("active", route === "progress");
   };
 
   const pushNotification = async (title, text, ask = false) => {
@@ -351,15 +730,19 @@
     const mistakes = openMistakes().slice(0, 3).map((mistake) => ({ id: mistake.id, title: mistake.question, subject: mistake.subject, href: "#mistakes", kind: "Fehler wiederholen" }));
     return [...manual, ...calendar, ...mistakes, ...cards].slice(0, 6);
   };
-  const saveMistake = (mistake) => {
+  const saveMistake = (mistake, options = {}) => {
     state.mistakes.unshift(normalizeMistake(mistake));
     state.mistakes = state.mistakes.slice(0, 200);
+    if (options.reward !== false) trackStudyAction("mistakeSaved");
   };
   const reviewOffsetForRating = (rating) => ({ again: 1, hard: 2, good: 4, easy: 7 })[rating] || 3;
   const scheduleCardReview = (card, rating) => {
     state.cardSchedule[card.id] = { rating, nextReview: addDays(todayIso(), reviewOffsetForRating(rating)), lastReviewed: todayIso() };
     state.cardReviewStatus = state.cardReviewStatus || {};
     state.cardReviewStatus[card.id] = rating;
+    const ownedCard = state.flashcards.find((item) => item.id === card.id);
+    if (ownedCard) ownedCard.reviewCount = Number(ownedCard.reviewCount || 0) + 1;
+    trackStudyAction("cardReviewed");
     if (rating === "again" || rating === "hard") {
       saveMistake({
         subject: card.subject,
@@ -443,6 +826,37 @@
     if (next) return `Bereite dich heute kurz auf ${next.subject} vor: ${next.title} ist am ${formatDate(next.date)} dran.`;
     return "Starte mit einem Fach, einer Karte oder einem Fehler. Lynxly baut daraus deinen Lerncoach.";
   };
+  const questPercent = (quest) => Math.min(100, Math.round((Number(quest.progress || 0) / Math.max(1, Number(quest.target || 1))) * 100));
+  const renderDailyQuestsCard = () => `
+    <article class="daily-quests-card focus-card">
+      <div class="quest-card-head">
+        <div><span>Tagesquests</span><h2>Heute ruhig Punkte sammeln</h2></div>
+        <strong>+100 XP</strong>
+      </div>
+      <div class="quest-list">
+        ${state.dailyQuests.map((quest) => `
+          <a class="quest-row ${quest.completed ? "completed" : ""}" href="${quest.href}">
+            <div>
+              <strong>${C.escapeHtml(quest.title)}</strong>
+              <small>${Math.min(Number(quest.progress || 0), Number(quest.target || 1))} / ${quest.target}</small>
+            </div>
+            ${progressBar(Math.min(Number(quest.progress || 0), Number(quest.target || 1)), quest.target, `Tagesquest ${quest.title}`, "quest-progress")}
+          </a>
+        `).join("")}
+      </div>
+    </article>
+  `;
+  const renderProgressTeaser = () => {
+    const progress = levelProgress();
+    return `
+      <a class="progress-teaser-card focus-card" href="#progress">
+        <div class="mascot-card-head">${C.mascot("mascot-small")}<div><span>Fortschritt</span><h2>Level ${progress.current.level}: ${C.escapeHtml(progress.current.title)}</h2></div></div>
+        <p>${state.xpThisWeek} XP diese Woche · ${state.xpTotal} XP gesamt</p>
+        ${progressBar(Number(state.xpTotal || 0) - progress.current.min, progress.end - progress.current.min, `Level ${progress.current.level} Fortschritt`)}
+        <em>Fortschritt öffnen</em>
+      </a>
+    `;
+  };
 
   const renderDashboard = () => {
     const next = nextFocus();
@@ -500,6 +914,11 @@
           <article><span>Pluspunkte</span><strong>${state.subjects.some(subjectHasGrades) ? formatPlusPoints(points) : "–"}</strong><small>Schweiz</small></article>
         </div>
 
+        <div class="today-grid gamification-home-grid">
+          ${renderDailyQuestsCard()}
+          ${renderProgressTeaser()}
+        </div>
+
         <div class="sleek-section-title"><h2>Als Nächstes</h2><a href="#planner">Alle</a></div>
         <div class="sleek-next-list">
           ${upcoming.map((item) => `<a class="sleek-next-item" href="#planner"><span class="next-dot ${item.exam ? "exam" : item.homework ? "homework" : ""}"><i></i></span><div><strong>${C.escapeHtml(item.title)}</strong><small>${C.escapeHtml(item.subject)}</small></div><em>${formatDate(item.date, { weekday: "short" })}</em></a>`).join("") || `<article class="sleek-next-item empty"><span class="next-dot"><i></i></span><div><strong>Noch kein Termin</strong><small>Trage im Plan eine Prüfung oder Hausaufgabe ein.</small></div></article>`}
@@ -545,7 +964,7 @@
       </section>`,
       `<section class="session-step">
         <h2>Karten wiederholen</h2>
-        ${card ? `${renderStudyCard(card)}<div class="study-nav-row"><button class="icon-button session-card-prev" type="button" ${cardIndex <= 0 ? "disabled" : ""}>&#8592;</button><span>${cardIndex + 1} / ${cards.length}</span><button class="icon-button session-card-next" type="button" ${cardIndex >= cards.length - 1 ? "disabled" : ""}>&#8594;</button></div><div class="srs-rating-grid"><button class="srs-rating again session-rate-card" data-rating="again" type="button">Nochmal</button><button class="srs-rating hard session-rate-card" data-rating="hard" type="button">Schwer</button><button class="srs-rating good session-rate-card" data-rating="good" type="button">Gut</button><button class="srs-rating easy session-rate-card" data-rating="easy" type="button">Einfach</button></div>` : emptyHelp}
+        ${card ? `${renderStudyCard(card)}<div class="study-nav-row"><button class="icon-button session-card-prev" type="button" aria-label="Vorherige Karte in der Lerneinheit" ${cardIndex <= 0 ? "disabled" : ""}>&#8592;</button><span>${cardIndex + 1} / ${cards.length}</span><button class="icon-button session-card-next" type="button" aria-label="Nächste Karte in der Lerneinheit" ${cardIndex >= cards.length - 1 ? "disabled" : ""}>&#8594;</button></div><div class="srs-rating-grid"><button class="srs-rating again session-rate-card" data-rating="again" type="button">Nochmal</button><button class="srs-rating hard session-rate-card" data-rating="hard" type="button">Schwer</button><button class="srs-rating good session-rate-card" data-rating="good" type="button">Gut</button><button class="srs-rating easy session-rate-card" data-rating="easy" type="button">Einfach</button></div>` : emptyHelp}
       </section>`,
       `<section class="session-step">
         <h2>Mini-Check</h2>
@@ -581,8 +1000,8 @@
   const gradeEntryById = (subject, id) => subject?.grades.find((grade) => grade.id === id);
   const renderGradeActions = (gradeId, partialId = "") => `
     <div class="grade-row-actions">
-      <button class="icon-action rename-grade" data-grade="${gradeId}" data-partial="${partialId}" type="button" title="Umbenennen">${C.icon("edit")}</button>
-      <button class="icon-action delete-grade" data-grade="${gradeId}" data-partial="${partialId}" type="button" title="Löschen">${C.icon("trash")}</button>
+      <button class="icon-action rename-grade" data-grade="${gradeId}" data-partial="${partialId}" type="button" title="Umbenennen" aria-label="Prüfung umbenennen">${C.icon("edit")}</button>
+      <button class="icon-action delete-grade" data-grade="${gradeId}" data-partial="${partialId}" type="button" title="Löschen" aria-label="Prüfung löschen">${C.icon("trash")}</button>
     </div>
   `;
   const renderGradeEntryRow = (grade) => {
@@ -614,7 +1033,7 @@
           <em>${avg === null ? "–" : avg.toFixed(2)}</em>
           <b class="${points >= 0 ? "positive" : "negative"}">${formatPlusPoints(points)}</b>
         </button>
-        <button class="icon-action delete-subject" data-id="${subject.id}" type="button" title="Fach löschen">${C.icon("trash")}</button>
+        <button class="icon-action delete-subject" data-id="${subject.id}" type="button" title="Fach löschen" aria-label="${C.escapeHtml(subject.name)} löschen">${C.icon("trash")}</button>
       </article>
     `;
   }).join("") || `<div class="empty-grade-list">Füge oben dein erstes Fach hinzu.</div>`;
@@ -629,7 +1048,7 @@
       <section class="grade-page">
         <div class="grade-page-header">
           <h1>Noten</h1>
-          <button class="round-add" id="toggle-subject-form" type="button">+</button>
+          <button class="round-add" id="toggle-subject-form" type="button" aria-label="Fach hinzufügen">+</button>
         </div>
         <form class="subject-add-form ${state.ui.showSubjectForm ? "show" : ""}" id="subject-form">
           <label>Fach<select name="name" required>${subjectChoices.map((subject) => `<option value="${C.escapeHtml(subject)}">${C.escapeHtml(subject)}</option>`).join("")}</select></label>
@@ -666,7 +1085,7 @@
         <div class="grade-page-header folder-detail-header">
           <button class="secondary-button back-to-subjects" type="button">Zurück</button>
           <h1>${C.escapeHtml(subject.name)}</h1>
-          <button class="round-add" id="toggle-grade-entry-form" type="button">+</button>
+          <button class="round-add" id="toggle-grade-entry-form" type="button" aria-label="Prüfung hinzufügen">+</button>
         </div>
         <div class="subject-score-row">
           <article><span>Durchschnitt</span><strong>${avg === null ? "–" : avg.toFixed(2)}</strong></article>
@@ -703,7 +1122,7 @@
         <div class="grade-page-header folder-detail-header">
           <button class="secondary-button back-to-subject-detail" type="button">Zurück</button>
           <h1>${C.escapeHtml(group.title)}</h1>
-          <button class="round-add" id="toggle-partial-entry-form" type="button">+</button>
+          <button class="round-add" id="toggle-partial-entry-form" type="button" aria-label="Teilprüfung hinzufügen">+</button>
         </div>
         <div class="subject-score-row partial-score-row">
           <article><span>Fach</span><strong>${C.escapeHtml(subject.name)}</strong></article>
@@ -787,18 +1206,18 @@
       <section class="planner-page sleek-screen">
         <div class="grade-page-header planner-page-header">
           <h1>Plan</h1>
-          ${state.ui.showEventForm ? "" : `<button class="round-add planner-header-add" id="toggle-event-form" type="button">+</button>`}
+          ${state.ui.showEventForm ? "" : `<button class="round-add planner-header-add" id="toggle-event-form" type="button" aria-label="Kalendereintrag hinzufügen">+</button>`}
         </div>
         <section class="panel calendar-only-panel ${state.ui.showEventForm ? "form-mode" : ""}">
         ${state.ui.showEventForm ? `
         <div class="form-only-header">
           <div><span>Plan</span><h2>Eintrag hinzufügen</h2></div>
-          <button class="icon-button" id="toggle-event-form" type="button" title="Schließen">×</button>
+          <button class="icon-button" id="toggle-event-form" type="button" title="Schließen" aria-label="Formular schließen">×</button>
         </div>
         ` : `<div class="sleek-month-selector">
-          <button class="planner-prev-month" type="button" title="Vorheriger Monat">&#8249;</button>
+          <button class="planner-prev-month" type="button" title="Vorheriger Monat" aria-label="Vorheriger Monat">&#8249;</button>
           <strong>${formatDate(shownMonth, { month: "long", year: "numeric" })}</strong>
-          <button class="planner-next-month" type="button" title="Nächster Monat">&#8250;</button>
+          <button class="planner-next-month" type="button" title="Nächster Monat" aria-label="Nächster Monat">&#8250;</button>
         </div>`}
       ${state.ui.showEventForm ? "" : renderCalendar()}
       <form id="event-form" class="calendar-entry-form ${state.ui.showEventForm ? "show" : ""}">
@@ -894,7 +1313,7 @@
     const index = Math.min(Math.max(0, Number(state.ui.cardStudyIndex || 0)), Math.max(0, cards.length - 1));
     const card = cards[index];
     return `
-      ${C.sectionTitle("Karten", state.ui.cardStudyMode === "personal" ? "Persoenliche Karten" : state.ui.cardStudyMode === "due" ? "Heute fällig" : "Empfohlener Stapel")}
+      ${C.sectionTitle("Karten", state.ui.cardStudyMode === "personal" ? "Persönliche Karten" : state.ui.cardStudyMode === "due" ? "Heute fällig" : "Empfohlener Stapel")}
       <section class="flashcard-study-area card-study-view">
         <div class="study-view-header">
           <button class="secondary-button close-study-view" type="button">Zurück</button>
@@ -902,9 +1321,9 @@
         </div>
         ${renderStudyCard(card)}
         <div class="study-nav-row">
-          <button class="icon-button study-prev" type="button" ${index <= 0 ? "disabled" : ""} title="Vorherige Karte">&#8592;</button>
+          <button class="icon-button study-prev" type="button" ${index <= 0 ? "disabled" : ""} title="Vorherige Karte" aria-label="Vorherige Karte">&#8592;</button>
           <span>${card ? C.escapeHtml(card.subject) : "Keine Karten"}</span>
-          <button class="icon-button study-next" type="button" ${index >= cards.length - 1 ? "disabled" : ""} title="Nächste Karte">&#8594;</button>
+          <button class="icon-button study-next" type="button" ${index >= cards.length - 1 ? "disabled" : ""} title="Nächste Karte" aria-label="Nächste Karte">&#8594;</button>
         </div>
         ${card ? `<div class="srs-rating-grid">
           <button class="srs-rating again" data-rating="again" type="button">Nochmal</button>
@@ -921,7 +1340,7 @@
     <section class="create-card-sheet standalone-create show">
       <div class="create-sheet-header">
         <strong>Karte hinzufügen</strong>
-        <button class="icon-button close-card-create" type="button" title="Schließen">×</button>
+        <button class="icon-button close-card-create" type="button" title="Schließen" aria-label="Karten-Erstellung schließen">×</button>
       </div>
       <div class="create-options">
         <button class="secondary-button choose-card-mode" data-mode="ai" type="button">${C.icon("camera")} Mit KI ${isPlus() ? "" : "· Plus"}</button>
@@ -943,7 +1362,7 @@
       <section class="cards-page sleek-screen">
         <div class="grade-page-header cards-page-header">
           <h1>Karten</h1>
-          <button class="round-add cards-header-add" id="toggle-card-create" type="button">+</button>
+          <button class="round-add cards-header-add" id="toggle-card-create" type="button" aria-label="Karte hinzufügen">+</button>
         </div>
       <section class="card-stack-board cards-main-stacks">
         ${renderStack("Heute fällig", "Spaced Repetition", dueCount, "due", dueCount ? "Starten" : "Leer")}
@@ -1186,6 +1605,214 @@
     ${renderPlanPricing()}
   `;
 
+  const badgeDefinition = (id) => badgeDefinitions.find((badge) => badge.id === id) || { id, title: id, text: "Freigeschaltet" };
+  const progressBar = (value, max, label, className = "") => {
+    const safeMax = Math.max(1, Number(max || 1));
+    const safeValue = Math.max(0, Math.min(safeMax, Number(value || 0)));
+    const percent = Math.round((safeValue / safeMax) * 100);
+    return `<span class="xp-progress ${className}" role="progressbar" aria-label="${C.escapeHtml(label)}" aria-valuemin="0" aria-valuemax="${safeMax}" aria-valuenow="${safeValue}"><i style="width:${percent}%"></i></span>`;
+  };
+  const isoWeekNumber = () => {
+    const date = dateObject(todayIso());
+    date.setDate(date.getDate() + 4 - (date.getDay() || 7));
+    const yearStart = new Date(date.getFullYear(), 0, 1);
+    return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+  };
+  const friendWeeklyXp = (friend) => {
+    if (friend.weeklyXp !== undefined) return Number(friend.weeklyXp || 0);
+    return Math.round(
+      Number(friend.cardsReviewed || 0) * 5
+      + Number(friend.mistakesFixed || 0) * 20
+      + Number(friend.studySessions || 0) * 50
+      + Number(friend.improved || 0) * 4
+    );
+  };
+  const userLeaderboardStats = () => ({
+    id: "you",
+    name: state.leaderboardPrivacy.visible ? (state.leaderboardPrivacy.displayName || "Du") : "Du (privat)",
+    initials: (state.leaderboardPrivacy.displayName || state.user.name || "D").slice(0, 1).toUpperCase(),
+    private: !state.leaderboardPrivacy.visible,
+    weeklyXp: Number(state.xpThisWeek || state.weeklyStats.xp || 0)
+  });
+  const leaderboardRows = () => {
+    return [
+      ...state.friends.map((friend) => ({ ...friend, weeklyXp: friendWeeklyXp(friend) })),
+      userLeaderboardStats()
+    ].sort((a, b) => Number(b.weeklyXp || 0) - Number(a.weeklyXp || 0));
+  };
+  const daysLeftInWeek = () => Math.max(1, 8 - (new Date().getDay() || 7));
+  const classLeaderboardRows = () => {
+    return [...(state.classLeague.classmates || []), classUserStats()]
+      .sort((a, b) => Number(b.weeklyXp || 0) - Number(a.weeklyXp || 0));
+  };
+  const classRankInfo = () => {
+    const rows = [...(state.classLeague.classmates || []), classUserStats()].sort((a, b) => Number(b.weeklyXp || 0) - Number(a.weeklyXp || 0));
+    const rank = rows.findIndex((row) => row.id === "you") + 1;
+    return { rank: rank || rows.length, total: rows.length, tier: tierById(state.leagueTier) };
+  };
+  const renderBadgeGrid = () => {
+    const unlocked = new Set(state.badges.map((badge) => badge.id));
+    return `
+      <section class="badge-grid">
+        ${badgeDefinitions.map((badge) => `
+          <article class="badge-chip ${unlocked.has(badge.id) ? "unlocked" : "locked"}">
+            <span>${unlocked.has(badge.id) ? C.icon("spark") : C.icon("lock")}</span>
+            <div><strong>${C.escapeHtml(badge.title)}</strong><small>${C.escapeHtml(badge.text)}</small></div>
+          </article>
+        `).join("")}
+      </section>
+    `;
+  };
+  const renderProgressPersonal = () => {
+    const progress = levelProgress();
+    const records = state.personalRecords;
+    const mascotLine = Number(state.xpThisWeek || 0) > 0
+      ? "Lynxly sagt: Du baust diese Woche echte Lernroutine auf. Bleib scharf."
+      : "Lynxly sagt: Starte ruhig mit einer Karte oder einem Fehler. Klein zählt auch.";
+    return `
+      <section class="progress-personal">
+        <article class="level-card">
+          <div class="level-card-top">
+            <div>
+              <span>Level ${progress.current.level}</span>
+              <h2>${C.escapeHtml(progress.current.title)}</h2>
+              <p>${progress.next ? `${progress.remaining} XP bis ${C.escapeHtml(progress.next.title)}` : "Max-Level für dieses MVP erreicht"}</p>
+            </div>
+            ${C.mascot("mascot-small")}
+          </div>
+          ${progressBar(Number(state.xpTotal || 0) - progress.current.min, progress.end - progress.current.min, `Level ${progress.current.level} Fortschritt`, "large")}
+          <div class="xp-meta"><strong>${state.xpThisWeek} XP diese Woche</strong><span>${state.xpTotal} XP gesamt</span><span>Rang ${classRankInfo().rank} · ${C.escapeHtml(classRankInfo().tier.name)}</span></div>
+        </article>
+        <article class="mascot-card progress-mascot-card">${C.mascot("mascot-small")}<p>${C.escapeHtml(mascotLine)}</p></article>
+        <section class="progress-stat-grid">
+          <article><span>Lerntage</span><strong>${state.weeklyStats.studyDays.length}</strong><small>diese Woche</small></article>
+          <article><span>Karten</span><strong>${state.weeklyStats.cardsReviewed}</strong><small>wiederholt</small></article>
+          <article><span>Fehler</span><strong>${state.weeklyStats.mistakesFixed}</strong><small>behoben</small></article>
+          <article><span>Sessions</span><strong>${state.weeklyStats.studySessions}</strong><small>abgeschlossen</small></article>
+        </section>
+        <section class="panel personal-records-card">
+          <div class="panel-header"><div><span>Persönliche Rekorde</span><h2>Nur gegen dich selbst</h2></div>${C.icon("target")}</div>
+          <div class="record-list">
+            <span>Beste XP-Woche <strong>${records.bestWeeklyXp}</strong></span>
+            <span>Meiste Karten/Woche <strong>${records.bestCardsWeek}</strong></span>
+            <span>Meiste Fehler/Woche <strong>${records.bestMistakesWeek}</strong></span>
+            <span>Meiste Sessions/Woche <strong>${records.bestSessionsWeek}</strong></span>
+          </div>
+        </section>
+        <div class="sleek-section-title"><h2>Badges</h2><span>${state.badges.length}/${badgeDefinitions.length}</span></div>
+        ${renderBadgeGrid()}
+      </section>
+    `;
+  };
+  const renderFriendsProgress = () => {
+    const rows = leaderboardRows();
+    const friendsCards = state.friends.reduce((sum, friend) => sum + Number(friend.cardsReviewed || 0), 0);
+    const friendsMistakes = state.friends.reduce((sum, friend) => sum + Number(friend.mistakesFixed || 0), 0);
+    const teamCards = friendsCards + Number(state.weeklyStats.cardsReviewed || 0);
+    const teamMistakes = friendsMistakes + Number(state.weeklyStats.mistakesFixed || 0);
+    return `
+      <section class="friends-progress">
+        <article class="challenge-card">
+          <div>
+            <span>Freunde Challenge</span>
+            <h2>${C.escapeHtml(state.friendsChallenge.title)}</h2>
+            <p>Noch ${daysLeftInWeek()} Tag${daysLeftInWeek() === 1 ? "" : "e"} · Belohnung: ${C.escapeHtml(state.friendsChallenge.reward)}</p>
+          </div>
+          ${C.mascot("mascot-small")}
+        </article>
+        <div class="leaderboard-mode-pill" aria-label="Leaderboard nach XP sortiert">XP Leaderboard</div>
+        <section class="leaderboard-list">
+          ${rows.map((row, index) => `
+            <article class="leaderboard-row ${row.id === "you" ? "you" : ""} ${row.private ? "private" : ""}">
+              <strong>${index + 1}</strong>
+              <span class="friend-avatar">${C.escapeHtml(row.initials || row.name.slice(0, 1))}</span>
+              <div><b>${C.escapeHtml(row.name)}</b><small>${row.private ? "Privat sichtbar" : C.escapeHtml(leaderboardCategory.note)}</small></div>
+              <em>${row.private ? "Privat" : `${Number(row.weeklyXp || 0)} ${C.escapeHtml(leaderboardCategory.unit)}`}</em>
+            </article>
+          `).join("")}
+        </section>
+        <section class="team-goal-card">
+          <h2>Gemeinsam diese Woche</h2>
+          <div class="team-goal-row"><span>Karten</span><strong>${teamCards} / ${state.friendsChallenge.cardsGoal}</strong>${progressBar(teamCards, state.friendsChallenge.cardsGoal, "Freunde-Ziel Karten")}</div>
+          <div class="team-goal-row"><span>Fehler</span><strong>${teamMistakes} / ${state.friendsChallenge.mistakesGoal}</strong>${progressBar(teamMistakes, state.friendsChallenge.mistakesGoal, "Freunde-Ziel Fehler")}</div>
+        </section>
+        <article class="privacy-note-card">${C.icon("lock")} <span>Keine Noten, E-Mails oder privaten Durchschnitte erscheinen in der Freunde Challenge.</span></article>
+      </section>
+    `;
+  };
+  const renderClassLeague = () => {
+    const rows = classLeaderboardRows();
+    const ownRank = rows.findIndex((row) => row.id === "you") + 1;
+    const totals = classTeamTotals();
+    const goals = state.classLeague.goals || {};
+    const tier = tierById(state.leagueTier);
+    const mascotText = ownRank > 4
+      ? "Lynxly sagt: Eine Karte reicht, um wieder reinzukommen. Kleine Schritte zählen."
+      : "Lynxly sagt: Du bist diese Woche stärker geworden. Bleib scharf.";
+    return `
+      <section class="class-league-page">
+        <article class="class-league-hero">
+          <div>
+            <span>${C.escapeHtml(state.classLeague.demoLabel || "Demo-Klassenliga · lokal gespeichert")}</span>
+            <h2>${C.escapeHtml(state.classLeague.className || "Klasse")}</h2>
+            <p>${C.escapeHtml(tier.name)} · Woche ${isoWeekNumber()} · Rang ${ownRank || "–"}</p>
+          </div>
+          <strong class="league-badge">${C.escapeHtml(tier.name)}</strong>
+        </article>
+        <form class="panel class-league-form" id="class-league-form">
+          <div class="panel-header"><div><span>Privatsphäre</span><h2>Klassenliga beitreten</h2></div>${C.icon("lock")}</div>
+          <label>Klassen-Code<input name="classCode" value="${C.escapeHtml(state.classCode || state.classLeague.classCode || "LYNX-2B")}" placeholder="LYNX-2B" /></label>
+          <label>Anzeigename<input name="displayName" maxlength="24" value="${C.escapeHtml(state.classLeaguePrivacy.displayName || state.user.name || "Du")}" placeholder="z. B. Max" /></label>
+          <label class="toggle-field"><input name="joined" type="checkbox" value="on" ${state.classLeaguePrivacy.joined ? "checked" : ""} /><span>Klassenliga nutzen</span><small>Aktuell lokal als Demo gespeichert.</small></label>
+          <label class="toggle-field"><input name="visible" type="checkbox" value="on" ${state.classLeaguePrivacy.visible ? "checked" : ""} /><span>Mich in der Klassenliga anzeigen</span><small>Nur XP und Lernaktionen, keine Noten oder E-Mail.</small></label>
+          <button class="secondary-button" type="submit">Klassenliga speichern</button>
+        </form>
+        <article class="mascot-card progress-mascot-card">${C.mascot("mascot-small")}<p>${C.escapeHtml(mascotText)}</p></article>
+        <div class="leaderboard-mode-pill" aria-label="Klassenliga nach XP sortiert">XP Leaderboard</div>
+        <section class="leaderboard-list class-league-list" aria-label="Wochenranking der Klassenliga">
+          ${rows.map((row, index) => {
+            const score = Number(row.weeklyXp || 0);
+            const name = row.private ? "Privat" : row.displayName;
+            return `
+              <article class="leaderboard-row class-rank-row ${row.id === "you" ? "you" : ""} ${row.private ? "private" : ""}" aria-label="Rang ${index + 1}: ${C.escapeHtml(name)}, ${row.private ? "privat" : `${score} ${classLeagueCategory.unit}`}">
+                <strong>${index + 1}</strong>
+                <span class="friend-avatar">${C.escapeHtml(row.initials || name.slice(0, 1))}</span>
+                <div><b>${C.escapeHtml(name)}</b><small>${row.id === "you" ? "Du" : C.escapeHtml(classLeagueCategory.note)}</small></div>
+                <em>${row.private ? "Privat" : `${score} ${C.escapeHtml(classLeagueCategory.unit)}`}</em>
+              </article>
+            `;
+          }).join("")}
+        </section>
+        <section class="team-goal-card class-team-goal">
+          <div class="panel-header"><div><span>Klassenbonus</span><h2>Gemeinsam diese Woche</h2></div><strong>+100 XP</strong></div>
+          <div class="team-goal-row"><span>Karten wiederholt</span><strong>${totals.cardsReviewed} / ${goals.cardsReviewed}</strong>${progressBar(totals.cardsReviewed, goals.cardsReviewed, "Klassenziel Karten wiederholt")}</div>
+          <div class="team-goal-row"><span>Fehler behoben</span><strong>${totals.mistakesFixed} / ${goals.mistakesFixed}</strong>${progressBar(totals.mistakesFixed, goals.mistakesFixed, "Klassenziel Fehler behoben")}</div>
+          <div class="team-goal-row"><span>Lerneinheiten</span><strong>${totals.studySessions} / ${goals.studySessions}</strong>${progressBar(totals.studySessions, goals.studySessions, "Klassenziel Lerneinheiten")}</div>
+          <p>${state.classLeague.bonusAwarded ? "Klassenbonus geschafft. Stark zusammen gelernt." : "Wenn alle Ziele erfüllt sind, bekommt deine lokale Demo-Klasse den Bonus."}</p>
+        </section>
+        <article class="privacy-note-card">${C.icon("lock")} <span>Klassenliga ist opt-in. Gezeigt werden nur sichere Lernwerte: XP, Karten, Fehler, Sessions und Verbesserungswert.</span></article>
+        <article class="league-reset-note"><strong>Wöchentlicher Neustart</strong><span>Top-Lernende können sanft aufsteigen. Unten heißt es nur: Bleib dran, nächste Woche startet frisch.</span></article>
+      </section>
+    `;
+  };
+  const renderProgress = () => {
+    const tab = ["friends", "class"].includes(state.ui.progressTab) ? state.ui.progressTab : "me";
+    return `
+      <section class="progress-page sleek-screen">
+        <div class="mistake-header">
+          <div><span class="eyebrow">Lynxly</span><h1>Fortschritt</h1></div>
+          <a class="secondary-button" href="#dashboard">Start</a>
+        </div>
+        <div class="settings-tabs progress-tabs" role="tablist" aria-label="Fortschritt Bereiche">
+          <button class="progress-tab ${tab === "me" ? "active" : ""}" data-tab="me" type="button">Ich</button>
+          <button class="progress-tab ${tab === "friends" ? "active" : ""}" data-tab="friends" type="button">Freunde</button>
+          <button class="progress-tab ${tab === "class" ? "active" : ""}" data-tab="class" type="button">Klasse</button>
+        </div>
+        ${tab === "class" ? renderClassLeague() : tab === "friends" ? renderFriendsProgress() : renderProgressPersonal()}
+      </section>
+    `;
+  };
+
   const renderDesignPanel = () => `
     <section class="panel design-settings-panel ${state.ui.designOpen ? "show" : ""}">
       <div class="panel-header"><div><span>Design</span><h2>Lynxly anpassen</h2></div>${isPlus() ? C.icon("palette") : C.icon("lock")}</div>
@@ -1241,6 +1868,12 @@
               <article><span>Plan</span><strong>${C.escapeHtml(planLabel(currentPlan()))}</strong></article>
             </div>
           </section>
+          <form class="panel leaderboard-privacy-card" id="leaderboard-privacy-form">
+            <div class="panel-header"><div><span>Freunde Challenge</span><h2>Privatsphäre</h2></div>${C.icon("lock")}</div>
+            <label>Anzeigename<input name="displayName" maxlength="24" value="${C.escapeHtml(state.leaderboardPrivacy.displayName || state.user.name || "Du")}" placeholder="z. B. Max" /></label>
+            <label class="toggle-field"><input name="visible" type="checkbox" value="on" ${state.leaderboardPrivacy.visible ? "checked" : ""} /><span>Mich in der Freunde Challenge anzeigen</span><small>Es werden nur Lernaktionen gezeigt, niemals Noten oder E-Mail.</small></label>
+            <button class="secondary-button" type="submit">Privatsphäre speichern</button>
+          </form>
           <button class="design-toggle-button" type="button">${C.icon("palette")} Design anpassen</button>
           ${renderDesignPanel()}
           <button class="danger-logout settings-logout" type="button">${C.icon("trash")} Ausloggen</button>
@@ -1255,7 +1888,7 @@
     const route = getRoute();
     if (route !== location.hash.replace("#", "") && location.hash) location.hash = route;
     setActiveNav(route);
-    const views = { dashboard: renderTodayDashboard, grades: renderGrades, planner: renderPlanner, cards: renderCards, mistakes: renderMistakes, session: renderStudySession, bot: renderBot, premium: renderPremium, settings: renderSettings };
+    const views = { dashboard: renderTodayDashboard, grades: renderGrades, planner: renderPlanner, cards: renderCards, mistakes: renderMistakes, progress: renderProgress, session: renderStudySession, bot: renderBot, premium: renderPremium, settings: renderSettings };
     app.classList.remove("page-enter");
     app.innerHTML = state.user.loggedIn ? views[route]() : renderOnboarding();
     requestAnimationFrame(() => app.classList.add("page-enter"));
@@ -1287,6 +1920,30 @@
       save();
       render();
     }));
+    document.querySelector("#leaderboard-privacy-form")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const data = formData(event.currentTarget);
+      state.leaderboardPrivacy.displayName = String(data.displayName || state.user.name || "Du").trim().slice(0, 24) || "Du";
+      state.leaderboardPrivacy.visible = data.visible === "on";
+      save();
+      render();
+    });
+    document.querySelectorAll(".progress-tab").forEach((button) => button.addEventListener("click", () => {
+      state.ui.progressTab = button.dataset.tab || "me";
+      save();
+      render();
+    }));
+    document.querySelector("#class-league-form")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const data = formData(event.currentTarget);
+      state.classCode = String(data.classCode || "LYNX-2B").trim().slice(0, 18) || "LYNX-2B";
+      state.classLeague.classCode = state.classCode;
+      state.classLeaguePrivacy.displayName = String(data.displayName || state.user.name || "Du").trim().slice(0, 24) || "Du";
+      state.classLeaguePrivacy.joined = data.joined === "on";
+      state.classLeaguePrivacy.visible = data.visible === "on" && state.classLeaguePrivacy.joined;
+      save();
+      render();
+    });
     document.querySelector(".design-toggle-button")?.addEventListener("click", () => {
       state.ui.designOpen = !state.ui.designOpen;
       save();
@@ -1337,7 +1994,7 @@
       });
       document.querySelectorAll(".session-fix-mistake").forEach((button) => button.addEventListener("click", () => {
         const mistake = state.mistakes.find((item) => item.id === button.dataset.id);
-        if (mistake) mistake.reviewStatus = "fixed";
+        markMistakeFixed(mistake);
         save();
         render();
       }));
@@ -1372,6 +2029,7 @@
       });
       document.querySelector(".complete-study-session")?.addEventListener("click", () => {
         updateStreak();
+        trackStudyAction("studySession");
         state.ui.studySessionStep = 0;
         state.ui.studySessionCardIndex = 0;
         pushNotification("Session abgeschlossen", "Deine Lernserie wurde aktualisiert.");
@@ -1528,6 +2186,7 @@
       document.querySelector(".create-subject-task")?.addEventListener("click", (event) => {
         const subject = event.currentTarget.dataset.subject || selectedSubject?.name || "Lernen";
         state.studyTasks.unshift({ id: uid("task"), subject, title: `${subject} 15 Minuten üben`, date: todayIso(), done: false });
+        trackStudyAction("studyTaskAdded");
         pushNotification("Lerntermin geplant", `${subject}: 15 Minuten üben`);
         save();
         location.hash = "#dashboard";
@@ -1569,6 +2228,7 @@
         if (data.autoPlan === "on") {
           state.planEvents.unshift(...createAutoPlan({ subject: data.subject, title: data.title, date: data.date, minutes: 25, topics: data.title }));
         }
+        trackStudyAction("studyTaskAdded");
         state.ui.showEventForm = false;
         pushNotification("Eintrag gespeichert", `${data.subject}: ${data.title}`);
         save();
@@ -1704,7 +2364,11 @@
       document.querySelectorAll(".fix-mistake, .reopen-mistake").forEach((button) => button.addEventListener("click", () => {
         const mistake = state.mistakes.find((item) => item.id === button.dataset.id);
         if (!mistake) return;
-        mistake.reviewStatus = button.classList.contains("reopen-mistake") ? "open" : "fixed";
+        if (button.classList.contains("reopen-mistake")) {
+          mistake.reviewStatus = "open";
+        } else {
+          markMistakeFixed(mistake);
+        }
         save();
         render();
       }));
@@ -1746,6 +2410,7 @@
       document.querySelectorAll(".save-ai-task").forEach((button) => button.addEventListener("click", () => {
         const question = lastUserMessageBefore(button.dataset.id);
         state.studyTasks.unshift({ id: uid("task"), subject: "KI", title: question.slice(0, 80), date: todayIso(), done: false });
+        trackStudyAction("studyTaskAdded");
         pushNotification("Lernaufgabe gespeichert", "Die Aufgabe erscheint jetzt auf Home.");
         save();
         render();
@@ -1792,6 +2457,13 @@
   });
   settingsButton?.addEventListener("click", () => {
     location.hash = "#settings";
+  });
+  progressFab?.addEventListener("click", () => {
+    ensureCollections();
+    state.ui.progressTab = "friends";
+    state.ui.leaderboardTab = "xp";
+    save();
+    if (getRoute() === "progress") render();
   });
   logoutButton?.addEventListener("click", () => {
     ensureCollections();

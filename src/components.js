@@ -41,7 +41,7 @@
 
   const mascot = (extraClass = "") => `
     <span class="mascot ${escapeHtml(extraClass)}" aria-hidden="true">
-      <img class="mascot-face" src="src/assets/lynxly-logo.png" alt="" />
+      <img class="mascot-face" src="src/assets/lynxly-avatar.png" alt="" />
     </span>
   `;
 

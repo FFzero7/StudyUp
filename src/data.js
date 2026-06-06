@@ -52,6 +52,85 @@
     mistakes: [],
     flashcards: [],
     cardSchedule: {},
+    xpTotal: 0,
+    xpThisWeek: 0,
+    level: 1,
+    badges: [],
+    dailyQuests: [],
+    dailyQuestDate: "",
+    weeklyStats: {
+      weekKey: "",
+      xp: 0,
+      cardsReviewed: 0,
+      mistakesFixed: 0,
+      mistakesReviewed: 0,
+      studySessions: 0,
+      studyDays: [],
+      studyTasksAdded: 0,
+      questsCompleted: 0
+    },
+    personalRecords: {
+      bestWeeklyXp: 0,
+      bestCardsWeek: 0,
+      bestMistakesWeek: 0,
+      bestSessionsWeek: 0,
+      totalCardsReviewed: 0,
+      totalMistakesFixed: 0,
+      totalStudySessions: 0
+    },
+    friends: [
+      { id: "mia", name: "Mia", initials: "M", weeklyXp: 620, improved: 18, mistakesFixed: 12, cardsReviewed: 64, studySessions: 5 },
+      { id: "leo", name: "Leo", initials: "L", weeklyXp: 540, improved: 14, mistakesFixed: 9, cardsReviewed: 58, studySessions: 4 },
+      { id: "nora", name: "Nora", initials: "N", weeklyXp: 430, improved: 11, mistakesFixed: 7, cardsReviewed: 45, studySessions: 3 }
+    ],
+    friendsChallenge: {
+      title: "Ruhige Lernwoche",
+      reward: "100 XP Bonus",
+      weekKey: "",
+      cardsGoal: 150,
+      mistakesGoal: 40
+    },
+    leaderboardPrivacy: {
+      visible: false,
+      displayName: "Du"
+    },
+    classLeague: {
+      className: "Klasse 2B",
+      classCode: "LYNX-2B",
+      weekKey: "",
+      tier: "forest",
+      bonusAwarded: false,
+      demoLabel: "Demo-Klassenliga · lokal gespeichert",
+      goals: {
+        cardsReviewed: 400,
+        mistakesFixed: 80,
+        studySessions: 40
+      },
+      classmates: [
+        { id: "mia", displayName: "Mia", initials: "M", weeklyXp: 620, cardsReviewed: 76, mistakesFixed: 18, studySessions: 7, improved: 24, tier: "forest" },
+        { id: "leo", displayName: "Leo", initials: "L", weeklyXp: 540, cardsReviewed: 68, mistakesFixed: 14, studySessions: 6, improved: 20, tier: "forest" },
+        { id: "nora", displayName: "Nora", initials: "N", weeklyXp: 430, cardsReviewed: 45, mistakesFixed: 9, studySessions: 4, improved: 16, tier: "forest" },
+        { id: "sam", displayName: "Sam", initials: "S", weeklyXp: 390, cardsReviewed: 38, mistakesFixed: 7, studySessions: 3, improved: 14, tier: "forest" },
+        { id: "elif", displayName: "Elif", initials: "E", weeklyXp: 340, cardsReviewed: 31, mistakesFixed: 5, studySessions: 3, improved: 12, tier: "forest" }
+      ]
+    },
+    classLeaguePrivacy: {
+      joined: false,
+      visible: false,
+      displayName: "Du"
+    },
+    classLeagueDemo: true,
+    recentXpEvents: [],
+    weeklyLeagueStats: {
+      weekKey: "",
+      weeklyXp: 0,
+      cardsReviewed: 0,
+      mistakesFixed: 0,
+      studySessions: 0,
+      improved: 0
+    },
+    leagueTier: "forest",
+    classCode: "LYNX-2B",
     streak: {
       current: 0,
       weeklySessions: 0,
@@ -106,6 +185,9 @@
       showEventForm: false,
       showExamForm: false,
       showMistakeForm: false,
+      progressTab: "me",
+      leaderboardTab: "xp",
+      classLeagueTab: "xp",
       plannerMonthOffset: 0,
       selectedPlannerDate: "",
       cardSearch: "",
