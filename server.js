@@ -7,14 +7,17 @@ const types = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
-  ".svg": "image/svg+xml"
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg"
 };
 
 const readBody = (req) => new Promise((resolve, reject) => {
   let body = "";
   req.on("data", (chunk) => {
     body += chunk;
-    if (body.length > 1_000_000) {
+    if (body.length > 6_000_000) {
       reject(new Error("Request too large"));
       req.destroy();
     }
@@ -23,9 +26,12 @@ const readBody = (req) => new Promise((resolve, reject) => {
   req.on("error", reject);
 });
 
-const fallbackAnswer = (message = "") => {
+const fallbackAnswer = (message = "", hasImage = false) => {
   const raw = String(message).trim();
   const lower = raw.toLowerCase();
+  if (hasImage) {
+    return "Ich habe dein Foto erhalten. Ohne verbundenen KI-Bildmodus kann ich es lokal nicht sicher auslesen. Beschreibe kurz, was auf dem Foto steht, dann helfe ich dir Schritt für Schritt.";
+  }
   if (!raw) return "Schreib mir deine Aufgabe, dann helfe ich dir Schritt für Schritt.";
 
   if (["translate", "uebersetze", "übersetze", "was heisst", "was heißt"].some((word) => lower.includes(word))) {
@@ -48,7 +54,19 @@ const sendJson = (res, status, data) => {
   res.end(JSON.stringify(data));
 };
 
-const callOpenAI = async (message) => {
+const buildAiInput = (message, imageData, attachmentName) => {
+  const text = message || (attachmentName ? `Hilf mir mit diesem Foto: ${attachmentName}` : "Hilf mir beim Lernen.");
+  if (!imageData) return text;
+  return [{
+    role: "user",
+    content: [
+      { type: "input_text", text },
+      { type: "input_image", image_url: imageData }
+    ]
+  }];
+};
+
+const callOpenAI = async (message, imageData, attachmentName) => {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -58,12 +76,12 @@ const callOpenAI = async (message) => {
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
       instructions: "Du bist Lynxly AI, ein vertrauenswürdiger Lerncoach für Schüler. Antworte auf Deutsch, erkläre Schritt für Schritt, stelle Rückfragen und gib nicht nur Endlösungen ohne Erklärung.",
-      input: message
+      input: buildAiInput(message, imageData, attachmentName)
     })
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error?.message || "KI-Anfrage fehlgeschlagen");
-  return data.output_text || fallbackAnswer(message);
+  return data.output_text || fallbackAnswer(message, Boolean(imageData));
 };
 
 const handleChat = async (req, res) => {
@@ -71,13 +89,15 @@ const handleChat = async (req, res) => {
     const raw = await readBody(req);
     const body = raw ? JSON.parse(raw) : {};
     const message = body.message || body.attachmentName || "";
+    const imageData = body.imageData || "";
+    const attachmentName = body.attachmentName || "";
     if (process.env.OPENAI_API_KEY) {
-      const answer = await callOpenAI(message);
+      const answer = await callOpenAI(message, imageData, attachmentName);
       sendJson(res, 200, { answer, offline: false });
       return;
     }
     sendJson(res, 200, {
-      answer: fallbackAnswer(message),
+      answer: fallbackAnswer(message, Boolean(imageData)),
       offline: true
     });
   } catch (error) {
