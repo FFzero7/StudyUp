@@ -1,6 +1,9 @@
-﻿const fallbackAnswer = (message = "") => {
+const fallbackAnswer = (message = "", hasImage = false) => {
   const raw = String(message).trim();
   const lower = raw.toLowerCase();
+  if (hasImage) {
+    return "Ich habe dein Foto erhalten. Ohne verbundenen KI-Bildmodus kann ich es lokal nicht sicher auslesen. Beschreibe kurz, was auf dem Foto steht, dann helfe ich dir Schritt für Schritt.";
+  }
   if (!raw) return "Schreib mir deine Aufgabe, dann helfe ich dir Schritt für Schritt.";
 
   if (["translate", "uebersetze", "übersetze", "was heisst", "was heißt"].some((word) => lower.includes(word))) {
@@ -18,6 +21,18 @@
   return `Lass uns das als Lerncoach zerlegen: 1. Was ist gegeben? 2. Was wird gesucht? 3. Welcher erste Schritt passt? Zu deiner Frage "${raw}" würde ich zuerst die wichtigsten Begriffe klären und dann ein kleines Beispiel machen.`;
 };
 
+const buildAiInput = (message, imageData, attachmentName) => {
+  const text = message || (attachmentName ? `Hilf mir mit diesem Foto: ${attachmentName}` : "Hilf mir beim Lernen.");
+  if (!imageData) return text;
+  return [{
+    role: "user",
+    content: [
+      { type: "input_text", text },
+      { type: "input_image", image_url: imageData }
+    ]
+  }];
+};
+
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
@@ -25,9 +40,11 @@ module.exports = async (req, res) => {
   }
 
   const message = req.body?.message || req.body?.attachmentName || "";
+  const imageData = req.body?.imageData || "";
+  const attachmentName = req.body?.attachmentName || "";
 
   if (!process.env.OPENAI_API_KEY) {
-    res.status(200).json({ answer: fallbackAnswer(message), offline: true });
+    res.status(200).json({ answer: fallbackAnswer(message, Boolean(imageData)), offline: true });
     return;
   }
 
@@ -40,8 +57,8 @@ module.exports = async (req, res) => {
       },
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
-        instructions: "Du bist Lynxly AI, ein Lerncoach für Schüler. Erkläre Schritt für Schritt, stelle Rückfragen und gib Hinweise. Gib bei Mathe keine reine Endantwort ohne Erklärung.",
-        input: message
+        instructions: "Du bist Lynxly AI, ein Lerncoach für Schüler. Antworte auf Deutsch, erkläre Schritt für Schritt, stelle Rückfragen und gib nicht nur Endlösungen ohne Erklärung. Wenn ein Foto dabei ist, lies es aus und hilf beim Verstehen der Aufgabe.",
+        input: buildAiInput(message, imageData, attachmentName)
       })
     });
 
@@ -51,12 +68,8 @@ module.exports = async (req, res) => {
       return;
     }
 
-    res.status(200).json({ answer: data.output_text || fallbackAnswer(message), offline: false });
+    res.status(200).json({ answer: data.output_text || fallbackAnswer(message, Boolean(imageData)), offline: false });
   } catch (error) {
-    res.status(200).json({ answer: fallbackAnswer(message), offline: true, warning: error.message });
+    res.status(200).json({ answer: fallbackAnswer(message, Boolean(imageData)), offline: true, warning: error.message });
   }
 };
-
-
-
-
