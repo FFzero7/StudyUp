@@ -12,11 +12,12 @@
   const xpWeekCount = document.querySelector("#xp-week-count");
   const xpToastLayer = document.querySelector("#xp-toast-layer");
   const xpLive = document.querySelector("#xp-live");
-  const progressFab = document.querySelector("#progress-fab");
   const logoutButton = document.querySelector("#logout-button");
   const C = window.StudyUpComponents;
   let state = window.StudyUpStorage.load();
   let cardSearchTimer = null;
+  let pendingChatAttachment = null;
+  let voiceRecognition = null;
 
   const routes = ["dashboard", "grades", "planner", "cards", "mistakes", "progress", "session", "bot", "premium", "settings"];
   const accentColors = { blue: "#2563eb", green: "#10b981", violet: "#7c3aed", coral: "#f97316" };
@@ -628,7 +629,6 @@
     }
     if (themeIcon) themeIcon.innerHTML = state.settings.theme === "dark" ? "&#9728;" : "&#9790;";
     if (themeLabel) themeLabel.textContent = state.settings.theme === "dark" ? "Hell" : "Dunkel";
-    if (progressFab) progressFab.hidden = !state.user.loggedIn;
   };
 
   const getRoute = () => {
@@ -638,9 +638,8 @@
   };
 
   const setActiveNav = (route) => {
-    const visibleRoute = { mistakes: "dashboard", progress: "dashboard", session: "dashboard", premium: "dashboard", settings: "dashboard" }[route] || route;
+    const visibleRoute = { mistakes: "dashboard", session: "dashboard", premium: "dashboard", settings: "dashboard" }[route] || route;
     navLinks.forEach((link) => link.classList.toggle("active", link.dataset.route === visibleRoute));
-    progressFab?.classList.toggle("active", route === "progress");
   };
 
   const pushNotification = async (title, text, ask = false) => {
@@ -1051,7 +1050,15 @@
           <button class="round-add" id="toggle-subject-form" type="button" aria-label="Fach hinzufügen">+</button>
         </div>
         <form class="subject-add-form ${state.ui.showSubjectForm ? "show" : ""}" id="subject-form">
-          <label>Fach<select name="name" required>${subjectChoices.map((subject) => `<option value="${C.escapeHtml(subject)}">${C.escapeHtml(subject)}</option>`).join("")}</select></label>
+          <label class="subject-combo-label">Fach
+            <div class="subject-combo" data-subject-combo>
+              <input name="name" required autocomplete="off" placeholder="Fach selbst eintippen" />
+              <button class="subject-suggest-toggle" type="button" aria-label="Vorgeschlagene Fächer anzeigen" aria-expanded="false">&#8964;</button>
+              <div class="subject-suggestions" role="listbox" aria-label="Vorgeschlagene Fächer">
+                ${subjectChoices.map((subject) => `<button type="button" role="option" data-subject="${C.escapeHtml(subject)}">${C.escapeHtml(subject)}</button>`).join("")}
+              </div>
+            </div>
+          </label>
           <label>Gewichtung<input name="weight" type="number" min="0.5" max="4" step="0.5" value="1" /></label>
           <button class="primary-button" type="submit">Fach hinzufügen</button>
         </form>
@@ -1102,11 +1109,10 @@
           <button class="primary-button" type="submit">Wunschnote speichern</button>
         </form>
         <form class="grade-entry-form ${state.ui.showGradeEntryForm ? "show" : ""}" id="grade-form">
-          <label>Prüfung oder Ordner<input name="title" required placeholder="z. B. Mathe-Test" /></label>
+          <label>Name <small>optional</small><input name="title" placeholder="Leer = automatische Prüfung" /></label>
           <label>Datum<input name="date" type="date" value="${todayIso()}" /></label>
-          <label>Note<input name="value" type="number" ${gradeInputAttrs()} /></label>
-          <label class="toggle-field"><input name="isPartial" type="checkbox" value="partial" /><span>Teilnoten</span><small>Erstellt einen Ordner für Teilprüfungen. Gewicht immer 1.</small></label>
-          <button class="primary-button" type="submit">Speichern</button>
+          <label>Note<input name="value" required type="number" ${gradeInputAttrs()} placeholder="z. B. 5.75" /></label>
+          <button class="primary-button" type="submit">Prüfung speichern</button>
         </form>
         ${state.ui.showGradeEntryForm ? "" : `<section class="grade-entry-list">
           ${subject.grades.map(renderGradeEntryRow).join("") || `<div class="empty-grade-list">Drücke +, um die erste Prüfung einzutragen.</div>`}
@@ -1130,9 +1136,9 @@
           <article><span>Gewicht</span><strong>1</strong></article>
         </div>
         <form class="grade-entry-form ${state.ui.showPartialEntryForm ? "show" : ""}" id="partial-grade-form">
-          <label>Teilprüfung<input name="title" required placeholder="z. B. Kurztest 1" /></label>
+          <label>Name <small>optional</small><input name="title" placeholder="Leer = automatische Teilprüfung" /></label>
           <label>Datum<input name="date" type="date" value="${todayIso()}" /></label>
-          <label>Note<input name="value" required type="number" ${gradeInputAttrs()} /></label>
+          <label>Note<input name="value" required type="number" ${gradeInputAttrs()} placeholder="z. B. 5.25" /></label>
           <button class="primary-button" type="submit">Teilprüfung speichern</button>
         </form>
         ${state.ui.showPartialEntryForm ? "" : `<section class="grade-entry-list">
@@ -1478,12 +1484,46 @@
     return `Kurz erklärt: ${raw || "Diese Frage"} kann ich dir beantworten. Wenn es eine Aufgabe ist, zerlegen wir sie zuerst in: Was ist gegeben? Was wird gesucht? Welcher erste Schritt passt dazu?`;
   };
 
-  const askLynxlyAI = async (message, attachment) => {
+  const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Foto konnte nicht gelesen werden."));
+    reader.readAsDataURL(file);
+  });
+
+  const prepareChatImage = (file) => new Promise((resolve, reject) => {
+    const image = new Image();
+    const url = URL.createObjectURL(file);
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      const maxSize = 900;
+      const ratio = Math.min(1, maxSize / Math.max(image.width, image.height));
+      const width = Math.max(1, Math.round(image.width * ratio));
+      const height = Math.max(1, Math.round(image.height * ratio));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        readFileAsDataUrl(file).then(resolve).catch(reject);
+        return;
+      }
+      context.drawImage(image, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", 0.72));
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      readFileAsDataUrl(file).then(resolve).catch(reject);
+    };
+    image.src = url;
+  });
+
+  const askLynxlyAI = async (message, attachment, imageData) => {
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: message || attachment || "Hilf mir beim Lernen", attachmentName: attachment || "" })
+        body: JSON.stringify({ message: message || attachment || "Hilf mir beim Lernen", attachmentName: attachment || "", imageData: imageData || "" })
       });
       const raw = await response.text();
       let data = {};
@@ -1509,6 +1549,7 @@
 
   const renderBot = () => {
     const messages = state.chat.length ? state.chat : [{ id: "intro", role: "bot", text: "Stell deine Frage. Ich helfe dir Schritt für Schritt, ohne dir einfach die fertige Lösung zu geben." }];
+    const attachmentReady = Boolean(state.ui.chatAttachmentName && pendingChatAttachment?.name === state.ui.chatAttachmentName);
     const actions = [
       ["Erkläre das", "Erkläre mir das Schritt für Schritt: "],
       ["Frag mich ab", "Frag mich dazu ab: "],
@@ -1524,15 +1565,15 @@
           <div class="ai-output">
             ${messages.map((msg) => `<article class="message ${msg.role === "user" ? "user" : "bot"}"><p>${C.escapeHtml(msg.text)}</p>${msg.role === "bot" && msg.id !== "intro" ? `<div class="message-actions"><button class="save-ai-flashcards" data-id="${msg.id}" type="button">Als Karten</button><button class="save-ai-mistake" data-id="${msg.id}" type="button">Als Fehler</button><button class="save-ai-task" data-id="${msg.id}" type="button">Als Aufgabe</button></div>` : ""}</article>`).join("")}
           </div>
-          ${state.ui.chatAttachmentName ? `<div class="attachment-pill">${C.icon("camera")} ${C.escapeHtml(state.ui.chatAttachmentName)}</div>` : ""}
+          ${attachmentReady ? `<div class="attachment-pill">${C.icon("camera")} Foto bereit: ${C.escapeHtml(state.ui.chatAttachmentName)}</div>` : ""}
           <div class="ai-quick-actions">
             ${actions.map(([label, prompt]) => `<button class="ai-quick-action" data-prompt="${C.escapeHtml(prompt)}" type="button">${C.escapeHtml(label)}</button>`).join("")}
           </div>
           <form id="chat-form" class="ai-full-input">
             <textarea id="chat-input" name="message" placeholder="Frag Lynxly AI"></textarea>
             <div class="ai-input-tools">
-              <label class="tool-button" title="Fotoanalyse kommt bald">${C.icon("camera")}<input id="ai-photo-input" type="file" accept="image/*" capture="environment" /></label>
-              <button class="tool-button voice-input" type="button" title="Mündlicher Input als Textnotiz">${C.icon("mic")}</button>
+              <label class="tool-button photo-library-button" title="Foto aus Mediathek auswählen" aria-label="Foto aus Mediathek auswählen">${C.icon("camera")}<input id="ai-photo-input" type="file" accept="image/*" /></label>
+              <button class="tool-button voice-input" type="button" title="Mündlich fragen" aria-label="Mündlich fragen" aria-pressed="false">${C.icon("mic")}</button>
               <button class="primary-button" type="submit">${C.icon("send")} Senden</button>
             </div>
           </form>
@@ -1548,6 +1589,50 @@
       document.querySelector(".ai-window")?.scrollIntoView({ block: "end", behavior: "auto" });
       document.querySelector("#chat-input")?.focus({ preventScroll: true });
     });
+  };
+
+  const startVoiceInput = () => {
+    const input = document.querySelector("#chat-input");
+    const button = document.querySelector(".voice-input");
+    if (!input || !button) return;
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) {
+      input.value = `${input.value}${input.value ? "\n" : ""}Mündliche Eingabe wird in diesem Browser nicht unterstützt. Du kannst deine Frage hier eintippen.`.trim();
+      input.focus();
+      return;
+    }
+    if (voiceRecognition) {
+      voiceRecognition.stop();
+      return;
+    }
+    const recognition = new Recognition();
+    voiceRecognition = recognition;
+    const startValue = input.value.trim();
+    recognition.lang = state.settings.language === "en" ? "en-US" : "de-CH";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    button.classList.add("listening");
+    button.setAttribute("aria-pressed", "true");
+    button.title = "Aufnahme läuft";
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map((result) => result[0]?.transcript || "")
+        .join(" ")
+        .trim();
+      input.value = `${startValue}${startValue && transcript ? "\n" : ""}${transcript}`.trim();
+      input.focus({ preventScroll: true });
+    };
+    recognition.onerror = () => {
+      input.placeholder = "Mikrofon konnte nicht gestartet werden. Prüfe die Browser-Berechtigung.";
+    };
+    recognition.onend = () => {
+      voiceRecognition = null;
+      button.classList.remove("listening");
+      button.setAttribute("aria-pressed", "false");
+      button.title = "Mündlich fragen";
+      input.focus({ preventScroll: true });
+    };
+    recognition.start();
   };
 
   const renderPlanCard = ({ id, title, position, price, features, badge, tone }) => {
@@ -1801,7 +1886,6 @@
       <section class="progress-page sleek-screen">
         <div class="mistake-header">
           <div><span class="eyebrow">Lynxly</span><h1>Fortschritt</h1></div>
-          <a class="secondary-button" href="#dashboard">Start</a>
         </div>
         <div class="settings-tabs progress-tabs" role="tablist" aria-label="Fortschritt Bereiche">
           <button class="progress-tab ${tab === "me" ? "active" : ""}" data-tab="me" type="button">Ich</button>
@@ -2052,10 +2136,38 @@
       document.querySelector("#subject-form")?.addEventListener("submit", (event) => {
         event.preventDefault();
         const data = formData(event.currentTarget);
-        state.subjects.push({ id: uid("sub"), name: data.name, weight: Number(data.weight || 1), grades: [] });
+        const name = String(data.name || "").trim();
+        if (!name) return;
+        state.subjects.push({ id: uid("sub"), name, weight: Number(data.weight || 1), grades: [] });
         state.ui.showSubjectForm = false;
         save();
         render();
+      });
+      document.querySelector(".subject-suggest-toggle")?.addEventListener("click", (event) => {
+        const combo = event.currentTarget.closest("[data-subject-combo]");
+        const open = !combo.classList.contains("open");
+        combo.classList.toggle("open", open);
+        event.currentTarget.setAttribute("aria-expanded", String(open));
+      });
+      document.querySelectorAll(".subject-suggestions button").forEach((button) => button.addEventListener("click", () => {
+        const combo = button.closest("[data-subject-combo]");
+        const input = combo?.querySelector("input[name='name']");
+        if (input) {
+          input.value = button.dataset.subject || button.textContent.trim();
+          input.focus();
+        }
+        combo?.classList.remove("open");
+        combo?.querySelector(".subject-suggest-toggle")?.setAttribute("aria-expanded", "false");
+      }));
+      document.querySelector("[data-subject-combo] input")?.addEventListener("input", (event) => {
+        const combo = event.currentTarget.closest("[data-subject-combo]");
+        combo?.classList.remove("open");
+        combo?.querySelector(".subject-suggest-toggle")?.setAttribute("aria-expanded", "false");
+      });
+      document.querySelector("[data-subject-combo] input")?.addEventListener("focus", (event) => {
+        const combo = event.currentTarget.closest("[data-subject-combo]");
+        combo?.classList.remove("open");
+        combo?.querySelector(".subject-suggest-toggle")?.setAttribute("aria-expanded", "false");
       });
       document.querySelectorAll(".grade-folder").forEach((button) => button.addEventListener("click", () => {
         state.ui.selectedGradeSubject = button.dataset.id;
@@ -2111,12 +2223,10 @@
         event.preventDefault();
         const data = formData(event.currentTarget);
         const subject = gradeSubjectById(state.ui.selectedGradeSubject);
-        if (subject) {
-          if (data.isPartial === "partial") {
-            subject.grades.push({ id: uid("partial"), type: "partial", title: data.title, date: data.date || todayIso(), partialGrades: [] });
-          } else if (data.value !== "") {
-            subject.grades.push({ id: uid("grade"), type: "exam", title: data.title, date: data.date || todayIso(), value: Number(data.value) });
-          }
+        if (subject && data.value !== "") {
+          const examNumber = subject.grades.filter((grade) => grade.type !== "partial").length + 1;
+          const title = String(data.title || "").trim() || `Prüfung ${examNumber}`;
+          subject.grades.push({ id: uid("grade"), type: "exam", title, date: data.date || todayIso(), value: Number(data.value) });
         }
         state.ui.showGradeEntryForm = false;
         save();
@@ -2136,8 +2246,10 @@
       document.querySelector("#partial-grade-form")?.addEventListener("submit", (event) => {
         event.preventDefault();
         const data = formData(event.currentTarget);
-        if (selectedPartial?.type === "partial") {
-          selectedPartial.partialGrades.push({ id: uid("part"), title: data.title, date: data.date || todayIso(), value: Number(data.value) });
+        if (selectedPartial?.type === "partial" && data.value !== "") {
+          const partNumber = selectedPartial.partialGrades.length + 1;
+          const title = String(data.title || "").trim() || `Teilprüfung ${partNumber}`;
+          selectedPartial.partialGrades.push({ id: uid("part"), title, date: data.date || todayIso(), value: Number(data.value) });
         }
         state.ui.showPartialEntryForm = false;
         save();
@@ -2375,18 +2487,29 @@
     }
 
     if (route === "bot") {
-      document.querySelector("#ai-photo-input")?.addEventListener("change", (event) => {
+      document.querySelector("#ai-photo-input")?.addEventListener("change", async (event) => {
         const file = event.currentTarget.files?.[0];
         if (!file) return;
-        state.ui.chatAttachmentName = file.name;
-        save();
-        render();
+        if (!file.type.startsWith("image/")) {
+          state.chat.push({ id: uid("msg"), role: "bot", text: "Bitte wähle ein Foto aus deiner Mediathek aus." });
+          save();
+          render();
+          return;
+        }
+        try {
+          pendingChatAttachment = { name: file.name, dataUrl: await prepareChatImage(file) };
+          state.ui.chatAttachmentName = file.name;
+          save();
+          render();
+        } catch (error) {
+          pendingChatAttachment = null;
+          state.ui.chatAttachmentName = "";
+          state.chat.push({ id: uid("msg"), role: "bot", text: "Das Foto konnte nicht gelesen werden. Bitte probiere ein anderes Bild." });
+          save();
+          render();
+        }
       });
-      document.querySelector(".voice-input")?.addEventListener("click", () => {
-        const input = document.querySelector("#chat-input");
-        input.value = `${input.value} Mündliche Notiz: `.trim();
-        input.focus();
-      });
+      document.querySelector(".voice-input")?.addEventListener("click", startVoiceInput);
       document.querySelectorAll(".ai-quick-action").forEach((button) => button.addEventListener("click", () => {
         const input = document.querySelector("#chat-input");
         input.value = `${button.dataset.prompt || ""}${input.value}`.trim();
@@ -2418,21 +2541,24 @@
       document.querySelector("#chat-form")?.addEventListener("submit", async (event) => {
         event.preventDefault();
         const message = formData(event.currentTarget).message.trim();
-        const attachment = state.ui.chatAttachmentName;
+        const attachment = pendingChatAttachment?.name === state.ui.chatAttachmentName ? state.ui.chatAttachmentName : "";
+        const imageData = pendingChatAttachment?.name === attachment ? pendingChatAttachment.dataUrl : "";
         if (!message && !attachment) return;
         if (state.settings.aiQuestionsUsed >= state.settings.aiLimit) {
           state.chat.push({ id: uid("msg"), role: "bot", text: `${planLabel(currentPlan())}-Limit erreicht: ${state.settings.aiLimit} KI-Fragen in diesem Monat sind genutzt.` });
         } else {
-          state.chat.push({ id: uid("msg"), role: "user", text: `${message || "Foto-Frage"}${attachment ? ` [Foto bald: ${attachment}]` : ""}` });
+          const userText = message || (attachment ? "Bitte hilf mir mit diesem Foto." : "");
+          state.chat.push({ id: uid("msg"), role: "user", text: `${userText}${attachment ? ` [Foto: ${attachment}]` : ""}` });
           state.chat.push({ id: uid("msg"), role: "bot", text: "Ich denke kurz nach ..." });
           state.ui.chatAttachmentName = "";
           save();
           render();
-          const answer = await askLynxlyAI(message || attachment, attachment);
+          const answer = await askLynxlyAI(userText, attachment, imageData);
           const placeholder = [...state.chat].reverse().find((msg) => msg.role === "bot" && msg.text === "Ich denke kurz nach ...");
           if (placeholder) placeholder.text = answer;
           state.settings.aiQuestionsUsed += 1;
         }
+        pendingChatAttachment = null;
         state.ui.chatAttachmentName = "";
         save();
         render();
@@ -2458,13 +2584,13 @@
   settingsButton?.addEventListener("click", () => {
     location.hash = "#settings";
   });
-  progressFab?.addEventListener("click", () => {
+  navLinks.forEach((link) => link.addEventListener("click", () => {
+    if (link.dataset.route !== "progress") return;
     ensureCollections();
     state.ui.progressTab = "friends";
     state.ui.leaderboardTab = "xp";
     save();
-    if (getRoute() === "progress") render();
-  });
+  }));
   logoutButton?.addEventListener("click", () => {
     ensureCollections();
     state.user.loggedIn = false;
