@@ -52,6 +52,46 @@
     mistakes: [],
     flashcards: [],
     cardSchedule: {},
+    deckSessions: {},
+    deckSessionHistory: [],
+    cardXpHistory: {},
+    learningMode: "",
+    activeModeSession: {},
+    modeHistory: [],
+    deckModeRewards: {},
+    testResults: [],
+    matchResults: [],
+    cardStudySession: {
+      choosing: false,
+      active: false,
+      completed: false,
+      mode: "",
+      currentAnswer: "",
+      selectedChoice: "",
+      selectedPromptId: "",
+      selectedAnswerId: "",
+      awaitingNext: false,
+      lastResult: null,
+      answers: [],
+      testQuestions: [],
+      matchPairs: [],
+      promptOrder: [],
+      answerOrder: []
+    },
+    weeklyDeckChallenge: {
+      weekKey: "",
+      target: 5,
+      progress: 0,
+      rewardXp: 150,
+      rewarded: false
+    },
+    dailyDeckStats: {
+      date: "",
+      fullSessions: 0,
+      sessionsCompleted: 0,
+      cardXp: 0,
+      deckXp: 0
+    },
     xpTotal: 0,
     xpThisWeek: 0,
     level: 1,
@@ -181,6 +221,10 @@
       showSubjectForm: false,
       showGradeEntryForm: false,
       showTargetGradeForm: false,
+      editingGradeId: "",
+      targetGradeWeight: "1",
+      targetGradeCategoryId: "",
+      whatIfResult: null,
       showPartialEntryForm: false,
       showEventForm: false,
       showExamForm: false,
@@ -191,6 +235,7 @@
       plannerMonthOffset: 0,
       selectedPlannerDate: "",
       cardSearch: "",
+      selectedCardPackId: "",
       cardCreateOpen: false,
       cardCreateMode: "",
       cardStudyOpen: false,
@@ -203,7 +248,8 @@
       designOpen: false,
       aiOfflineMode: true,
       lastPhotoName: "",
-      chatAttachmentName: ""
+      chatAttachmentName: "",
+      aiAttachMenuOpen: false
     }
   };
 })();

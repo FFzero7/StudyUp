@@ -44,13 +44,21 @@
     { id: "mistakes", title: "1 Fehler beheben", metric: "mistakes", target: 1, href: "#mistakes" },
     { id: "sessions", title: "1 Lerneinheit abschließen", metric: "sessions", target: 1, href: "#session" }
   ];
+  const learningModeOptions = [
+    { id: "cards", title: "Karten", text: "Drehe Karten um und bewerte mit Again, Hard, Good oder Easy.", duration: "4-7 Min", xp: "Mittel", difficulty: "Leicht", target: 10 },
+    { id: "write", title: "Schreiben", text: "Tippe die Antwort selbst ein. Nur richtig oder falsch.", duration: "5-8 Min", xp: "Hoch", difficulty: "Mittel", target: 8 },
+    { id: "choice", title: "Choice", text: "Wähle aus vier Antworten. Schnell, klar und gut zum Warmwerden.", duration: "3-6 Min", xp: "Mittel", difficulty: "Leicht", target: 8 },
+    { id: "test", title: "Test", text: "Gemischte Prüfungsrunde mit Schreiben und Choice.", duration: "8-12 Min", xp: "Sehr hoch", difficulty: "Hoch", target: 10 },
+    { id: "match", title: "Zuordnen", text: "Verbinde Begriffe mit passenden Lösungen.", duration: "4-6 Min", xp: "Mittel", difficulty: "Mittel", target: 8 }
+  ];
+  const comboRewards = { 3: 5, 5: 10, 10: 20 };
   const leaderboardCategory = { label: "XP", field: "weeklyXp", unit: "XP", note: "diese Woche gelernt" };
   const leagueTiers = [
-    { id: "snow", name: "Snow Lynx League", min: 0 },
-    { id: "forest", name: "Forest Lynx League", min: 250 },
-    { id: "alpine", name: "Alpine Lynx League", min: 650 },
-    { id: "shadow", name: "Shadow Lynx League", min: 1250 },
-    { id: "northern", name: "Northern Lynx League", min: 2100 }
+    { id: "snow", name: "Curious Lynx Liga", min: 0 },
+    { id: "forest", name: "Focus Lynx Liga", min: 250 },
+    { id: "alpine", name: "Sharp Lynx Liga", min: 650 },
+    { id: "shadow", name: "Study Hunter Liga", min: 1250 },
+    { id: "northern", name: "Exam Master Liga", min: 2100 }
   ];
   const classLeagueCategory = { label: "XP", field: "weeklyXp", unit: "XP", note: "diese Woche gelernt" };
 
@@ -69,12 +77,46 @@
   };
   const save = () => window.StudyUpStorage.save(state);
   const formData = (form) => Object.fromEntries(new FormData(form).entries());
+  const parseNumberInput = (value, fallback = NaN) => {
+    const normalized = String(value ?? "").trim().replace(",", ".");
+    if (!normalized) return fallback;
+    const number = Number(normalized);
+    return Number.isFinite(number) ? number : fallback;
+  };
+  const parseWeightInput = (value, fallback = 1) => {
+    const raw = String(value ?? "").trim().toLowerCase().replace(/\s+/g, "").replace(",", ".");
+    if (!raw) return fallback;
+    const isPercent = raw.endsWith("%");
+    const numeric = raw.replace(/%$/, "").replace(/x$/, "");
+    const number = Number(numeric);
+    if (!Number.isFinite(number) || number <= 0) return fallback;
+    return Math.max(0.01, isPercent ? number / 100 : number);
+  };
+  const formatWeightInput = (value) => {
+    const number = Math.max(0.01, Number(value || 1));
+    if (!Number.isFinite(number)) return "1";
+    if (number > 0 && number < 1) return `${Math.round(number * 100)}%`;
+    return String(Number(number.toFixed(2))).replace(".", ",");
+  };
+  const formatWeightLabel = (value) => {
+    const formatted = formatWeightInput(value);
+    return formatted.endsWith("%") ? formatted : `${formatted}x`;
+  };
+  const formatWeightPercentLabel = (value) => `${Math.round(Math.max(0.01, Number(value || 1)) * 100)}%`;
   const normalizePartialGrade = (grade) => ({
     id: grade.id || uid("part"),
     title: grade.title || "Teilprüfung",
     date: grade.date || todayIso(),
-    value: Number(grade.value || 0)
+    value: Number(grade.value || 0),
+    weight: Number(grade.weight || 1),
+    categoryId: grade.categoryId || ""
   });
+  const defaultGradeCategories = () => [
+    { id: uid("cat"), name: "Tests", percentage: 50 },
+    { id: uid("cat"), name: "Mitarbeit", percentage: 15 },
+    { id: uid("cat"), name: "Hausaufgaben", percentage: 15 },
+    { id: uid("cat"), name: "Projekte", percentage: 20 }
+  ];
   const normalizeGradeEntry = (grade) => {
     if (grade.type === "partial") {
       return {
@@ -82,6 +124,8 @@
         type: "partial",
         title: grade.title || "Teilnoten",
         date: grade.date || todayIso(),
+        weight: Number(grade.weight || 1),
+        categoryId: grade.categoryId || "",
         partialGrades: (grade.partialGrades || []).map(normalizePartialGrade)
       };
     }
@@ -90,7 +134,9 @@
       type: "exam",
       title: grade.title || "Prüfung",
       date: grade.date || todayIso(),
-      value: Number(grade.value || 0)
+      value: Number(grade.value || 0),
+      weight: Number(grade.weight || 1),
+      categoryId: grade.categoryId || ""
     };
   };
   const normalizeMistake = (mistake) => ({
@@ -139,6 +185,37 @@
     mistakesFixed: 0,
     studySessions: 0,
     improved: 0
+  });
+  const defaultDailyDeckStats = () => ({
+    date: todayIso(),
+    fullSessions: 0,
+    sessionsCompleted: 0,
+    cardXp: 0,
+    deckXp: 0
+  });
+  const defaultWeeklyDeckChallenge = () => ({
+    weekKey: weekKey(),
+    target: 5,
+    progress: 0,
+    rewardXp: 150,
+    rewarded: false
+  });
+  const defaultCardStudySession = () => ({
+    choosing: false,
+    active: false,
+    completed: false,
+    mode: "",
+    currentAnswer: "",
+    selectedChoice: "",
+    selectedPromptId: "",
+    selectedAnswerId: "",
+    awaitingNext: false,
+    lastResult: null,
+    answers: [],
+    testQuestions: [],
+    matchPairs: [],
+    promptOrder: [],
+    answerOrder: []
   });
   const tierForXp = (xp) => [...leagueTiers].reverse().find((tier) => Number(xp || 0) >= tier.min) || leagueTiers[0];
   const tierById = (id) => leagueTiers.find((tier) => tier.id === id) || leagueTiers[1];
@@ -249,6 +326,35 @@
     state.classCode = state.classCode || state.classLeague.classCode || "LYNX-2B";
     state.classLeague.tier = state.leagueTier;
     state.classLeague.classCode = state.classCode;
+    state.deckSessions = state.deckSessions && typeof state.deckSessions === "object" && !Array.isArray(state.deckSessions) ? state.deckSessions : {};
+    state.deckSessionHistory = Array.isArray(state.deckSessionHistory) ? state.deckSessionHistory.slice(0, 80) : [];
+    state.cardXpHistory = state.cardXpHistory && typeof state.cardXpHistory === "object" && !Array.isArray(state.cardXpHistory) ? state.cardXpHistory : {};
+    state.learningMode = state.learningMode || "";
+    state.activeModeSession = state.activeModeSession && typeof state.activeModeSession === "object" && !Array.isArray(state.activeModeSession) ? state.activeModeSession : {};
+    state.modeHistory = Array.isArray(state.modeHistory) ? state.modeHistory.slice(0, 120) : [];
+    state.deckModeRewards = state.deckModeRewards && typeof state.deckModeRewards === "object" && !Array.isArray(state.deckModeRewards) ? state.deckModeRewards : {};
+    state.testResults = Array.isArray(state.testResults) ? state.testResults.slice(0, 80) : [];
+    state.matchResults = Array.isArray(state.matchResults) ? state.matchResults.slice(0, 80) : [];
+    if (!state.dailyDeckStats || state.dailyDeckStats.date !== todayIso()) {
+      state.dailyDeckStats = defaultDailyDeckStats();
+    } else {
+      state.dailyDeckStats = { ...defaultDailyDeckStats(), ...state.dailyDeckStats, date: todayIso() };
+    }
+    if (!state.weeklyDeckChallenge || state.weeklyDeckChallenge.weekKey !== currentWeek) {
+      state.weeklyDeckChallenge = defaultWeeklyDeckChallenge();
+    } else {
+      state.weeklyDeckChallenge = { ...defaultWeeklyDeckChallenge(), ...state.weeklyDeckChallenge, weekKey: currentWeek };
+      state.weeklyDeckChallenge.progress = Math.min(Number(state.weeklyDeckChallenge.target || 5), Number(state.weeklyDeckChallenge.progress || 0));
+    }
+    state.cardStudySession = {
+      ...defaultCardStudySession(),
+      ...(state.cardStudySession || {})
+    };
+    state.cardStudySession.cardIds = Array.isArray(state.cardStudySession.cardIds) ? state.cardStudySession.cardIds : [];
+    state.cardStudySession.reviewedIds = Array.isArray(state.cardStudySession.reviewedIds) ? state.cardStudySession.reviewedIds : [];
+    state.cardStudySession.ratings = Array.isArray(state.cardStudySession.ratings) ? state.cardStudySession.ratings : [];
+    state.cardStudySession.comboAwards = Array.isArray(state.cardStudySession.comboAwards) ? state.cardStudySession.comboAwards : [];
+    state.cardStudySession.dueCardIds = Array.isArray(state.cardStudySession.dueCardIds) ? state.cardStudySession.dueCardIds : [];
     state.ui.progressTab = state.ui.progressTab || "me";
     state.ui.leaderboardTab = "xp";
     state.ui.classLeagueTab = "xp";
@@ -276,18 +382,19 @@
     const toast = document.createElement("div");
     toast.className = `xp-toast ${options.levelUp ? "level-up" : ""}`;
     toast.setAttribute("role", "status");
-    toast.innerHTML = `<strong>+${xp} XP</strong><span>${C.escapeHtml(cleanReason)}</span><i aria-hidden="true"></i>`;
+    toast.setAttribute("aria-label", `${xp} XP erhalten: ${C.escapeHtml(cleanReason)}`);
+    toast.innerHTML = `<strong>+${xp}</strong><i aria-hidden="true"></i><span>${C.escapeHtml(cleanReason)}</span>`;
     xpToastLayer.appendChild(toast);
     window.setTimeout(() => toast.remove(), options.levelUp ? 1800 : 1250);
   };
   const showLevelUpToast = (level) => {
     const name = level?.title || "Sharp Lynx";
-    if (xpLive) xpLive.textContent = `Level up! Du bist jetzt ${name}.`;
+    if (xpLive) xpLive.textContent = `Neue Liga! Du bist jetzt ${name}.`;
     if (!xpToastLayer) return;
     const toast = document.createElement("div");
     toast.className = "xp-toast level-up-toast";
     toast.setAttribute("role", "status");
-    toast.innerHTML = `${C.mascot("mascot-small")}<div><strong>Level up!</strong><span>Du bist jetzt ${C.escapeHtml(name)}.</span></div>`;
+    toast.innerHTML = `${C.mascot("mascot-small")}<div><strong>Neue Liga!</strong><span>Du bist jetzt ${C.escapeHtml(name)}.</span></div>`;
     xpToastLayer.appendChild(toast);
     window.setTimeout(() => toast.remove(), 2200);
   };
@@ -451,8 +558,20 @@
     state.subjects = (state.subjects || []).map((subject) => ({
       weight: 1,
       targetGrade: "",
+      gradeMode: "simple",
+      gradeCategories: defaultGradeCategories(),
+      normalizeCategories: false,
       grades: [],
       ...subject,
+      gradeMode: ["simple", "weight", "category"].includes(subject.gradeMode) ? subject.gradeMode : "simple",
+      gradeCategories: Array.isArray(subject.gradeCategories) && subject.gradeCategories.length
+        ? subject.gradeCategories.map((category) => ({
+          id: category.id || uid("cat"),
+          name: category.name || "Kategorie",
+          percentage: Number(category.percentage || 0)
+        }))
+        : defaultGradeCategories(),
+      normalizeCategories: Boolean(subject.normalizeCategories),
       grades: (subject.grades || []).map(normalizeGradeEntry)
     }));
     state.exams = state.exams || [];
@@ -480,6 +599,7 @@
     state.ui.selectedPartialGroup = state.ui.selectedPartialGroup || null;
     state.ui.plannerMonthOffset = Number(state.ui.plannerMonthOffset || 0);
     state.ui.selectedPlannerDate = state.ui.selectedPlannerDate || todayIso();
+    state.ui.selectedCardPackId = state.ui.selectedCardPackId || "";
     state.ui.cardStudyIndex = Number(state.ui.cardStudyIndex || 0);
     state.ui.studySessionStep = Number(state.ui.studySessionStep || 0);
     state.ui.studySessionCardIndex = Number(state.ui.studySessionCardIndex || 0);
@@ -490,6 +610,12 @@
     state.ui.showMistakeForm = Boolean(state.ui.showMistakeForm);
     state.ui.showTargetGradeForm = Boolean(state.ui.showTargetGradeForm);
     state.ui.showPartialEntryForm = Boolean(state.ui.showPartialEntryForm);
+    state.ui.showPartialWeightForm = Boolean(state.ui.showPartialWeightForm);
+    state.ui.aiAttachMenuOpen = Boolean(state.ui.aiAttachMenuOpen);
+    state.ui.editingGradeId = state.ui.editingGradeId || "";
+    state.ui.targetGradeWeight = state.ui.targetGradeWeight || "1";
+    state.ui.targetGradeCategoryId = state.ui.targetGradeCategoryId || "";
+    state.ui.whatIfResult = state.ui.whatIfResult || null;
     ensureGamification();
     if (!state.ui.cleanedHundredthsTest) {
       state.subjects.forEach((subject) => {
@@ -516,12 +642,53 @@
     const values = gradeValues(grades);
     return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
   };
-  const subjectHasGrades = (subject) => gradeValues(subject.grades || []).length > 0;
+  const gradeWeight = (grade) => Math.max(0.01, Number(grade.weight || 1));
+  const weightedGradeAverage = (grades) => {
+    const weighted = (grades || [])
+      .map((grade) => ({ value: gradeValue(grade), weight: gradeWeight(grade) }))
+      .filter((grade) => Number.isFinite(grade.value));
+    const weightSum = weighted.reduce((sum, grade) => sum + grade.weight, 0);
+    return weightSum ? weighted.reduce((sum, grade) => sum + grade.value * grade.weight, 0) / weightSum : null;
+  };
+  const categoryBreakdown = (subject, gradesOverride = null) => {
+    const categories = subject.gradeCategories?.length ? subject.gradeCategories : defaultGradeCategories();
+    const grades = gradesOverride || subject.grades || [];
+    const totalPercent = categories.reduce((sum, category) => sum + Number(category.percentage || 0), 0);
+    const rows = categories.map((category) => {
+      const entries = grades.filter((grade) => grade.categoryId === category.id);
+      const avg = weightedGradeAverage(entries);
+      return {
+        ...category,
+        grades: entries,
+        average: avg,
+        contribution: Number.isFinite(avg) ? avg * (Number(category.percentage || 0) / 100) : null
+      };
+    });
+    const filledPercent = rows.filter((row) => Number.isFinite(row.average)).reduce((sum, row) => sum + Number(row.percentage || 0), 0);
+    const contributionTotal = rows.reduce((sum, row) => sum + (Number.isFinite(row.contribution) ? row.contribution : 0), 0);
+    return { rows, totalPercent, filledPercent, contributionTotal, openPercent: Math.max(0, 100 - filledPercent) };
+  };
+  const subjectAverage = (subject, gradesOverride = null) => {
+    const grades = gradesOverride || subject.grades || [];
+    if ((subject.gradeMode || "simple") === "weight") return weightedGradeAverage(grades);
+    if (subject.gradeMode === "category") {
+      const breakdown = categoryBreakdown(subject, grades);
+      const filled = breakdown.rows.filter((row) => Number.isFinite(row.average) && Number(row.percentage || 0) > 0);
+      if (!filled.length) return weightedGradeAverage(grades);
+      const denominator = subject.normalizeCategories
+        ? filled.reduce((sum, row) => sum + Number(row.percentage || 0), 0)
+        : 100;
+      return denominator ? filled.reduce((sum, row) => sum + row.average * (Number(row.percentage || 0) / denominator), 0) : null;
+    }
+    return weightedGradeAverage(grades);
+  };
+  const subjectDisplayAverage = (subject) => subjectAverage(subject);
+  const subjectHasGrades = (subject) => Number.isFinite(subjectDisplayAverage(subject));
 
   const weightedAverage = () => {
     const weighted = state.subjects
       .filter(subjectHasGrades)
-      .map((subject) => ({ value: average(subject.grades), weight: Number(subject.weight || 1) }));
+      .map((subject) => ({ value: subjectDisplayAverage(subject), weight: Number(subject.weight || 1) }));
     const weightSum = weighted.reduce((sum, item) => sum + item.weight, 0);
     return weightSum ? weighted.reduce((sum, item) => sum + item.value * item.weight, 0) / weightSum : null;
   };
@@ -546,7 +713,7 @@
     return Math.round(delta * 10) / 10;
   };
 
-  const plusPointsFor = (subject) => subjectHasGrades(subject) ? plusPointsForAverage(average(subject.grades)) * Number(subject.weight || 1) : 0;
+  const plusPointsFor = (subject) => subjectHasGrades(subject) ? plusPointsForAverage(subjectDisplayAverage(subject)) * Number(subject.weight || 1) : 0;
   const plusPointsTotal = () => Math.round(state.subjects.reduce((sum, subject) => sum + plusPointsFor(subject), 0) * 10) / 10;
   const formatPlusPoints = (value) => {
     const rounded = Math.round(value * 10) / 10;
@@ -623,7 +790,7 @@
       xpPill.setAttribute("aria-label", `${Number(state.xpThisWeek || 0)} XP diese Woche`);
     }
     if (cardsNavBadge) {
-      const due = dueCards().length;
+      const due = pendingDueCards().length;
       cardsNavBadge.textContent = String(due);
       cardsNavBadge.hidden = due === 0;
     }
@@ -709,11 +876,51 @@
     ...state.flashcards,
     ...libraryCardsForReview()
   ].map((card) => ({ ...card, ...cardScheduleFor(card.id) }));
-  const dueCards = () => allCardsForReview().filter((card) => !card.nextReview || card.nextReview <= todayIso());
+  const cardIsDue = (card) => !card.nextReview || card.nextReview <= todayIso();
+  const cardWasDueToday = (card) => cardIsDue(card) || (state.cardXpHistory?.[card.id]?.date === todayIso() && state.cardXpHistory?.[card.id]?.due);
+  const cardReviewedToday = (card) => state.cardSchedule?.[card.id]?.lastReviewed === todayIso() || state.cardXpHistory?.[card.id]?.date === todayIso();
+  const dueCards = () => allCardsForReview().filter(cardWasDueToday);
+  const pendingDueCards = () => allCardsForReview().filter((card) => cardIsDue(card) && !cardReviewedToday(card));
+  const rememberCardDueToday = (card, wasDue) => {
+    if (!card?.id || !wasDue) return;
+    const previous = state.cardXpHistory?.[card.id] || {};
+    state.cardXpHistory[card.id] = {
+      ...previous,
+      date: todayIso(),
+      due: true,
+      xp: Number(previous.xp || 0)
+    };
+  };
+  const recordCardReviewAction = (count = 1) => {
+    ensureGamification();
+    const amount = Math.max(1, Number(count || 1));
+    state.weeklyStats.cardsReviewed = Number(state.weeklyStats.cardsReviewed || 0) + amount;
+    state.weeklyLeagueStats.cardsReviewed = Number(state.weeklyLeagueStats.cardsReviewed || 0) + amount;
+    state.personalRecords.totalCardsReviewed = Number(state.personalRecords.totalCardsReviewed || 0) + amount;
+    addQuestProgress("cards", amount);
+    updatePersonalRecords();
+    evaluateBadges();
+    checkClassBonus();
+  };
+  const awardCardReviewXp = (card, wasDue) => {
+    if (!card?.id) return 0;
+    ensureGamification();
+    const today = todayIso();
+    const previous = state.cardXpHistory[card.id];
+    recordCardReviewAction(1);
+    if (previous?.date === today && Number(previous.xp || 0) > 0) return 0;
+    const xp = wasDue ? 4 : 1;
+    state.cardXpHistory[card.id] = { ...previous, date: today, xp, due: Boolean(previous?.due || wasDue) };
+    if (xp > 0) {
+      awardXp(xp, "Karte gelernt");
+      state.dailyDeckStats.cardXp = Number(state.dailyDeckStats.cardXp || 0) + xp;
+    }
+    return xp;
+  };
   const nextExamOrHomework = () => calendarItems().find((item) => (item.exam || item.homework) && item.date >= todayIso());
   const weakestSubject = () => {
     const graded = [...state.subjects].filter(subjectHasGrades).sort((a, b) => plusPointsFor(a) - plusPointsFor(b))[0];
-    if (graded) return { name: graded.name, reason: `${formatPlusPoints(plusPointsFor(graded))} und ${average(graded.grades).toFixed(2)} Schnitt`, href: "#grades" };
+    if (graded) return { name: graded.name, reason: `${formatPlusPoints(plusPointsFor(graded))} und ${subjectAverage(graded).toFixed(2)} Schnitt`, href: "#grades" };
     const byMistake = openMistakes().reduce((map, mistake) => {
       map[mistake.subject] = (map[mistake.subject] || 0) + 1;
       return map;
@@ -725,7 +932,7 @@
     const today = todayIso();
     const manual = state.studyTasks.filter((task) => !task.done && (!task.date || task.date <= today)).map((task) => ({ ...task, href: "#planner", kind: "Lernaufgabe" }));
     const calendar = calendarItems().filter((item) => item.date === today).map((item) => ({ id: item.id, title: item.title, subject: item.subject, href: "#planner", kind: item.type }));
-    const cards = dueCards().slice(0, 3).map((card) => ({ id: card.id, title: card.question, subject: card.subject, href: "#cards", kind: "Karte fällig" }));
+    const cards = pendingDueCards().slice(0, 3).map((card) => ({ id: card.id, title: card.question, subject: card.subject, href: "#cards", kind: "Karte fällig" }));
     const mistakes = openMistakes().slice(0, 3).map((mistake) => ({ id: mistake.id, title: mistake.question, subject: mistake.subject, href: "#mistakes", kind: "Fehler wiederholen" }));
     return [...manual, ...calendar, ...mistakes, ...cards].slice(0, 6);
   };
@@ -735,13 +942,15 @@
     if (options.reward !== false) trackStudyAction("mistakeSaved");
   };
   const reviewOffsetForRating = (rating) => ({ again: 1, hard: 2, good: 4, easy: 7 })[rating] || 3;
-  const scheduleCardReview = (card, rating) => {
+  const scheduleCardReview = (card, rating, options = {}) => {
+    const wasDue = cardIsDue(card);
+    rememberCardDueToday(card, wasDue);
     state.cardSchedule[card.id] = { rating, nextReview: addDays(todayIso(), reviewOffsetForRating(rating)), lastReviewed: todayIso() };
     state.cardReviewStatus = state.cardReviewStatus || {};
     state.cardReviewStatus[card.id] = rating;
     const ownedCard = state.flashcards.find((item) => item.id === card.id);
     if (ownedCard) ownedCard.reviewCount = Number(ownedCard.reviewCount || 0) + 1;
-    trackStudyAction("cardReviewed");
+    if (options.rewardCard) awardCardReviewXp(card, wasDue);
     if (rating === "again" || rating === "hard") {
       saveMistake({
         subject: card.subject,
@@ -751,8 +960,9 @@
         userAnswer: rating === "again" ? "Nicht gewusst" : "Unsicher",
         explanation: "Aus Karteikarten-Wiederholung gespeichert.",
         source: "Karten"
-      });
+      }, { reward: options.mistakeReward === true });
     }
+    return { wasDue };
   };
   const updateStreak = () => {
     const today = todayIso();
@@ -762,12 +972,36 @@
     state.streak.weeklySessions = Number(state.streak.weeklySessions || 0) + 1;
     state.streak.lastStudyDate = today;
   };
-  const requiredNextGrade = (subject) => {
+  const requiredNextGrade = (subject, options = {}) => {
     if (!subject?.targetGrade || !subjectHasGrades(subject)) return null;
-    const values = gradeValues(subject.grades);
     const target = Number(subject.targetGrade);
     if (!Number.isFinite(target)) return null;
-    return target * (values.length + 1) - values.reduce((sum, value) => sum + value, 0);
+    const system = currentSystem();
+    const min = Number(system.min);
+    const max = Number(system.max);
+    const weight = Math.max(0.01, Number(options.weight || 1));
+    const categoryId = subject.gradeMode === "category" ? (options.categoryId || subject.gradeCategories?.[0]?.id || "") : "";
+    const projectedMin = projectSubjectAverage(subject, min, { weight, categoryId });
+    const projectedMax = projectSubjectAverage(subject, max, { weight, categoryId });
+    if (system.higherIsBetter && projectedMax < target) return null;
+    if (!system.higherIsBetter && projectedMin > target) return null;
+    if (system.higherIsBetter && projectedMin >= target) return min;
+    if (!system.higherIsBetter && projectedMax <= target) return max;
+    let low = min;
+    let high = max;
+    for (let index = 0; index < 42; index += 1) {
+      const mid = (low + high) / 2;
+      const projected = projectSubjectAverage(subject, mid, { weight, categoryId });
+      if (system.higherIsBetter) {
+        if (projected >= target) high = mid;
+        else low = mid;
+      } else if (projected <= target) {
+        low = mid;
+      } else {
+        high = mid;
+      }
+    }
+    return system.higherIsBetter ? high : low;
   };
   const subjectTrend = (subject) => {
     const values = gradeValues(subject.grades);
@@ -795,7 +1029,7 @@
   const smartRecommendation = () => {
     const weak = weakestSubject();
     if (openMistakes().length) return { title: `${openMistakes().length} Fehler gezielt reparieren`, href: "#mistakes" };
-    if (dueCards().length) return { title: `${dueCards().length} Karte(n) heute wiederholen`, href: "#cards" };
+    if (pendingDueCards().length) return { title: `${pendingDueCards().length} Karte(n) heute wiederholen`, href: "#cards" };
     if (weak) return { title: `${weak.name} gezielt üben`, href: weak.href };
     const due = nextFocus();
     if (due) return { title: `${due.subject}: ${due.title}`, href: "#planner" };
@@ -811,7 +1045,7 @@
     if (mistakeFocus) {
       return `Heute solltest du 15 Minuten ${mistakeFocus[0]} machen, weil du dort ${mistakeLabel(mistakeFocus[1])} hast.`;
     }
-    const dueBySubject = dueCards().reduce((counts, card) => {
+    const dueBySubject = pendingDueCards().reduce((counts, card) => {
       counts[card.subject] = (counts[card.subject] || 0) + 1;
       return counts;
     }, {});
@@ -847,11 +1081,12 @@
   `;
   const renderProgressTeaser = () => {
     const progress = levelProgress();
+    const currentTier = tierForXp(state.xpTotal);
     return `
       <a class="progress-teaser-card focus-card" href="#progress">
-        <div class="mascot-card-head">${C.mascot("mascot-small")}<div><span>Fortschritt</span><h2>Level ${progress.current.level}: ${C.escapeHtml(progress.current.title)}</h2></div></div>
-        <p>${state.xpThisWeek} XP diese Woche · ${state.xpTotal} XP gesamt</p>
-        ${progressBar(Number(state.xpTotal || 0) - progress.current.min, progress.end - progress.current.min, `Level ${progress.current.level} Fortschritt`)}
+        <div class="mascot-card-head">${C.mascot("mascot-small")}<div><span>Fortschritt</span><h2>${C.escapeHtml(currentTier.name)}</h2></div></div>
+        <p>${progress.next ? `${progress.remaining} XP bis ${C.escapeHtml(progress.next.title)}` : "Höchstes Ziel erreicht"} · ${state.xpThisWeek} XP diese Woche</p>
+        ${progressBar(Number(state.xpTotal || 0) - progress.current.min, progress.end - progress.current.min, `Fortschritt bis ${progress.next ? progress.next.title : currentTier.name}`)}
         <em>Fortschritt öffnen</em>
       </a>
     `;
@@ -886,7 +1121,7 @@
     const tasks = studyTasksToday();
     const hasContent = state.subjects.length || state.flashcards.length || state.exams.length || state.homework.length || state.mistakes.length;
     const upcoming = calendarItems().filter((item) => item.date >= todayIso()).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 2);
-    const dueCount = dueCards().length;
+    const dueCount = pendingDueCards().length;
     const openMistakeCount = openMistakes().length;
     return `
       <section class="home-page today-dashboard sleek-screen">
@@ -943,7 +1178,7 @@
   };
 
   const sessionMistakes = () => openMistakes().slice(0, 3);
-  const sessionCards = () => dueCards().slice(0, 5);
+  const sessionCards = () => pendingDueCards().slice(0, 5);
   const renderSessionProgress = () => `
     <div class="session-progress">
       ${["Fehler", "Karten", "Mini-Check", "Zusammenfassung"].map((label, index) => `<span class="${state.ui.studySessionStep === index ? "active" : ""}">${index + 1}. ${label}</span>`).join("")}
@@ -992,29 +1227,65 @@
 
   const gradeInputAttrs = () => {
     const system = currentSystem();
-    return `min="${system.min}" max="${system.max}" step="0.01" placeholder="${C.escapeHtml(system.example)}"`;
+    return `min="${system.min}" max="${system.max}" step="0.01"`;
+  };
+  const fitTitleStyle = (title) => {
+    const length = Math.max(4, [...String(title || "")].length);
+    const size = Math.max(1.65, Math.min(3.7, 4.7 - (length * 0.24)));
+    return `style="--fit-title-size:${size.toFixed(2)}rem"`;
   };
 
   const gradeSubjectById = (id) => state.subjects.find((subject) => subject.id === id);
   const gradeEntryById = (subject, id) => subject?.grades.find((grade) => grade.id === id);
+  const gradeCategoryById = (subject, categoryId) => (subject.gradeCategories || []).find((category) => category.id === categoryId);
+  const defaultTargetOptions = (subject) => ({
+    weight: parseWeightInput(state.ui.targetGradeWeight, 1),
+    categoryId: subject.gradeMode === "category"
+      ? (gradeCategoryById(subject, state.ui.targetGradeCategoryId)?.id || subject.gradeCategories?.[0]?.id || "")
+      : ""
+  });
+  const projectSubjectAverage = (subject, value, options = {}) => subjectAverage(subject, [
+    ...(subject.grades || []),
+    {
+      id: "preview-grade",
+      type: "exam",
+      title: "Vorschau",
+      date: todayIso(),
+      value: Number(value),
+      weight: parseWeightInput(options.weight, 1),
+      categoryId: options.categoryId || ""
+    }
+  ]);
   const renderGradeActions = (gradeId, partialId = "") => `
     <div class="grade-row-actions">
-      <button class="icon-action rename-grade" data-grade="${gradeId}" data-partial="${partialId}" type="button" title="Umbenennen" aria-label="Prüfung umbenennen">${C.icon("edit")}</button>
       <button class="icon-action delete-grade" data-grade="${gradeId}" data-partial="${partialId}" type="button" title="Löschen" aria-label="Prüfung löschen">${C.icon("trash")}</button>
     </div>
   `;
   const renderGradeEntryRow = (grade) => {
     const isPartial = grade.type === "partial";
     const value = gradeValue(grade);
+    const subject = gradeSubjectById(state.ui.selectedGradeSubject);
+    const category = gradeCategoryById(subject || {}, grade.categoryId);
+    const partialCount = isPartial ? (grade.partialGrades || []).length : 0;
+    const details = [
+      isPartial ? `${partialCount} Teilprüfung${partialCount === 1 ? "" : "en"}` : (grade.date ? formatDate(grade.date) : "Ohne Datum"),
+      isPartial ? `Zählt ${formatWeightPercentLabel(gradeWeight(grade))}` : (gradeWeight(grade) !== 1 ? `Gewicht ${formatWeightLabel(gradeWeight(grade))}` : ""),
+      category ? category.name : ""
+    ].filter(Boolean).join(" · ");
     return `
-      <article class="grade-swipe-row ${isPartial ? "partial-folder-row" : ""}">
-        <button class="grade-row-main ${isPartial ? "open-partial-folder" : ""}" data-id="${grade.id}" type="button">
+      <article class="grade-swipe-row ${isPartial ? "partial-folder-row" : ""}" ${isPartial ? `data-partial-id="${grade.id}"` : ""}>
+        <button class="grade-row-main ${isPartial ? "open-partial-folder" : "edit-grade-entry"}" data-id="${grade.id}" type="button" aria-label="${isPartial ? `${C.escapeHtml(grade.title)} öffnen` : `${C.escapeHtml(grade.title)} bearbeiten`}">
           <span class="grade-row-icon">${C.icon(isPartial ? "folder" : "chart")}</span>
           <div>
             <strong>${C.escapeHtml(grade.title)}</strong>
-            <small>${isPartial ? `${grade.partialGrades.length} Teilprüfungen · Gewicht 1` : (grade.date ? formatDate(grade.date) : "Ohne Datum")}</small>
+            <small>${C.escapeHtml(details || "Ohne Datum")}</small>
           </div>
-          <em>${Number.isFinite(value) ? value.toFixed(2) : "–"}</em>
+          ${isPartial ? `
+            <span class="partial-folder-metrics">
+              <b>${Number.isFinite(value) ? value.toFixed(2) : "–"}</b>
+              <small>${formatWeightPercentLabel(gradeWeight(grade))}</small>
+            </span>
+          ` : `<em>${Number.isFinite(value) ? value.toFixed(2) : "–"}</em>`}
         </button>
         ${renderGradeActions(grade.id)}
       </article>
@@ -1022,7 +1293,7 @@
   };
 
   const renderSubjectFolders = () => state.subjects.map((subject) => {
-    const avg = subjectHasGrades(subject) ? average(subject.grades) : null;
+    const avg = subjectAverage(subject);
     const points = plusPointsFor(subject);
     return `
       <article class="subject-folder-row">
@@ -1032,7 +1303,9 @@
           <em>${avg === null ? "–" : avg.toFixed(2)}</em>
           <b class="${points >= 0 ? "positive" : "negative"}">${formatPlusPoints(points)}</b>
         </button>
-        <button class="icon-action delete-subject" data-id="${subject.id}" type="button" title="Fach löschen" aria-label="${C.escapeHtml(subject.name)} löschen">${C.icon("trash")}</button>
+        <div class="subject-row-actions">
+          <button class="icon-action delete-subject" data-id="${subject.id}" type="button" title="Fach löschen" aria-label="${C.escapeHtml(subject.name)} löschen">${C.icon("trash")}</button>
+        </div>
       </article>
     `;
   }).join("") || `<div class="empty-grade-list">Füge oben dein erstes Fach hinzu.</div>`;
@@ -1081,17 +1354,135 @@
     `;
   };
 
+  const renderGradeModeFields = (subject, values = {}) => {
+    const selectedCategoryId = values.categoryId || subject.gradeCategories?.[0]?.id || "";
+    const selectedWeight = parseWeightInput(values.weight, 1);
+    const weightField = `
+      <label>Gewichtung <small>x oder %</small>
+        <input id="grade-weight" name="weight" type="text" inputmode="decimal" value="${C.escapeHtml(formatWeightInput(selectedWeight))}" />
+      </label>
+    `;
+    const folderToggle = values.includeFolderToggle ? `
+      <label class="toggle-field grade-folder-toggle">
+        <input name="isPartialFolder" type="checkbox" />
+        <span>Als Noten-Ordner speichern</span>
+        <small>Für Teilnoten wie mündliche Noten oder kurze Abfragen.</small>
+      </label>
+    ` : "";
+    if (subject.gradeMode === "category") {
+      return `
+        <label>Kategorie
+          <select name="categoryId" required>
+            ${(subject.gradeCategories || []).map((category) => `<option value="${category.id}" ${category.id === selectedCategoryId ? "selected" : ""}>${C.escapeHtml(category.name)} · ${Number(category.percentage || 0)}%</option>`).join("")}
+          </select>
+        </label>
+        ${weightField}
+        ${folderToggle}
+      `;
+    }
+    return `${weightField}${folderToggle}`;
+  };
+
+  const renderTargetModeFields = (subject) => {
+    if (subject.gradeMode === "simple") return "";
+    const currentOptions = defaultTargetOptions(subject);
+    const weightField = `
+      <label>Nächste Gewichtung <small>x oder %</small>
+        <input id="target-grade-weight" name="targetWeight" type="text" inputmode="decimal" value="${C.escapeHtml(formatWeightInput(currentOptions.weight))}" />
+      </label>
+    `;
+    if (subject.gradeMode === "category") {
+      return `
+        <label>Nächste Kategorie
+          <select name="targetCategoryId">
+            ${(subject.gradeCategories || []).map((category) => `<option value="${category.id}" ${category.id === currentOptions.categoryId ? "selected" : ""}>${C.escapeHtml(category.name)} · ${Number(category.percentage || 0)}%</option>`).join("")}
+          </select>
+        </label>
+        ${weightField}
+      `;
+    }
+    return weightField;
+  };
+
+  const renderCategoryBreakdown = (subject) => {
+    if (subject.gradeMode !== "category") return "";
+    const breakdown = categoryBreakdown(subject);
+    const avg = subjectAverage(subject);
+    const filled = Math.round(breakdown.filledPercent);
+    const open = Math.max(0, 100 - filled);
+    const totalWarning = Math.round(breakdown.totalPercent) === 100 || subject.normalizeCategories
+      ? ""
+      : `<p class="category-progress-note warning">Die Kategorien ergeben ${Math.round(breakdown.totalPercent)}%. Der Endschnitt kann unvollständig wirken, bis du 100% erreichst oder automatisch normalisierst.</p>`;
+    return `
+      <section class="category-breakdown-card">
+        <div class="sleek-section-title">
+          <h2>Kategorie-Breakdown</h2>
+          <span>${Number.isFinite(avg) ? avg.toFixed(2) : "–"}</span>
+        </div>
+        <p class="category-progress-note">${filled}% der Bewertung ist mit Noten gefüllt${open ? ` · Noch ${open}% offen` : ""}</p>
+        ${totalWarning}
+        ${breakdown.rows.map((row) => `
+          <article class="category-breakdown-row">
+            <div>
+              <strong>${C.escapeHtml(row.name)}</strong>
+              <small>${Number(row.percentage || 0)}% · ${row.grades.length ? `${row.grades.length} Note${row.grades.length === 1 ? "" : "n"}` : "Noch keine Noten"}</small>
+            </div>
+            <span>${Number.isFinite(row.average) ? row.average.toFixed(2) : "–"}</span>
+            <em>${Number.isFinite(row.contribution) ? row.contribution.toFixed(2) : "–"}</em>
+          </article>
+        `).join("")}
+      </section>
+    `;
+  };
+
+  const renderWhatIfCard = (subject) => {
+    const result = state.ui.whatIfResult?.subjectId === subject.id ? state.ui.whatIfResult : null;
+    const current = subjectAverage(subject);
+    const change = result && Number.isFinite(result.average) && Number.isFinite(current) ? result.average - current : null;
+    return `
+      <section class="what-if-card">
+        <div class="sleek-section-title"><h2>Zur Wunschnote testen</h2><span>Was wäre, wenn</span></div>
+        <form class="what-if-form" id="what-if-form">
+          <label>Titel <small>optional</small><input name="title" /></label>
+          <label>Note<input name="value" required type="number" ${gradeInputAttrs()} /></label>
+          ${subject.gradeMode === "category" ? `
+            <label>Kategorie<select name="categoryId">${(subject.gradeCategories || []).map((category) => `<option value="${category.id}">${C.escapeHtml(category.name)}</option>`).join("")}</select></label>
+          ` : ""}
+          ${subject.gradeMode !== "simple" ? `<label>Gewichtung <small>x oder %</small><input name="weight" type="text" inputmode="decimal" value="1" /></label>` : ""}
+          <button class="secondary-button" type="submit">Ausrechnen</button>
+        </form>
+        ${result ? `
+          <div class="what-if-result">
+            <article><span>Aktuell</span><strong>${Number.isFinite(current) ? current.toFixed(2) : "–"}</strong></article>
+            <article><span>Vorschau</span><strong>${Number.isFinite(result.average) ? result.average.toFixed(2) : "–"}</strong></article>
+            <article><span>Änderung</span><strong>${Number.isFinite(change) ? `${change >= 0 ? "+" : ""}${change.toFixed(2)}` : "–"}</strong></article>
+            <button class="primary-button save-what-if-grade" type="button">Als Note speichern</button>
+          </div>
+        ` : ""}
+      </section>
+    `;
+  };
+
   const renderGradeSubjectDetail = (subject) => {
-    const avg = subjectHasGrades(subject) ? average(subject.grades) : null;
+    const avg = subjectDisplayAverage(subject);
     const points = plusPointsFor(subject);
     const target = subject.targetGrade ? Number(subject.targetGrade).toFixed(2) : "–";
-    const needed = requiredNextGrade(subject);
-    const trend = subjectTrend(subject);
+    const targetOptions = defaultTargetOptions(subject);
+    const needed = requiredNextGrade(subject, targetOptions);
+    const neededText = Number.isFinite(needed)
+      ? `ca. ${needed.toFixed(2)}`
+      : (subject.targetGrade ? "Mit einer einzelnen Note wahrscheinlich nicht erreichbar" : "Zielnote setzen");
+    const editingGrade = state.ui.editingGradeId ? gradeEntryById(subject, state.ui.editingGradeId) : null;
+    const gradeFormTitle = editingGrade?.title || "";
+    const gradeFormDate = editingGrade?.date || todayIso();
+    const gradeFormValue = Number.isFinite(gradeValue(editingGrade || {})) ? gradeValue(editingGrade).toFixed(2) : "";
+    const gradeFormWeight = editingGrade ? gradeWeight(editingGrade) : 1;
+    const gradeFormCategory = editingGrade?.categoryId || subject.gradeCategories?.[0]?.id || "";
     return `
       <section class="grade-page">
         <div class="grade-page-header folder-detail-header">
-          <button class="secondary-button back-to-subjects" type="button">Zurück</button>
-          <h1>${C.escapeHtml(subject.name)}</h1>
+          <button class="icon-button back-arrow-button back-to-subjects" type="button" title="Zurück" aria-label="Zurück zu den Fächern">&#8249;</button>
+          <h1 ${fitTitleStyle(subject.name)}>${C.escapeHtml(subject.name)}</h1>
           <button class="round-add" id="toggle-grade-entry-form" type="button" aria-label="Prüfung hinzufügen">+</button>
         </div>
         <div class="subject-score-row">
@@ -1100,21 +1491,27 @@
           <article><span>Pluspunkte</span><strong class="${points >= 0 ? "positive" : "negative"}">${formatPlusPoints(points)}</strong></article>
         </div>
         <div class="grade-coach-row">
-          <article><span>Nächste Note für Ziel</span><strong>${Number.isFinite(needed) ? needed.toFixed(2) : "-"}</strong></article>
-          <article><span>Trend</span><strong>${C.escapeHtml(trend)}</strong></article>
-          <button class="secondary-button create-subject-task" data-subject="${C.escapeHtml(subject.name)}" type="button">Lerntermin planen</button>
+          <article><span>Welche Note brauche ich?</span><strong>${C.escapeHtml(neededText)}</strong></article>
         </div>
-        <form class="target-grade-form ${state.ui.showTargetGradeForm ? "show" : ""}" id="target-grade-form">
-          <label>Wunschnote<input name="targetGrade" type="number" ${gradeInputAttrs()} value="${C.escapeHtml(subject.targetGrade || "")}" /></label>
-          <button class="primary-button" type="submit">Wunschnote speichern</button>
-        </form>
+        ${state.ui.showTargetGradeForm ? `
+          <form class="target-grade-form show" id="target-grade-form">
+            <label>Wunschnote<input name="targetGrade" type="number" ${gradeInputAttrs()} value="${C.escapeHtml(subject.targetGrade || "")}" /></label>
+            ${renderTargetModeFields(subject)}
+            <button class="primary-button" type="submit">Wunschnote speichern</button>
+          </form>
+          ${renderWhatIfCard(subject)}
+        ` : ""}
         <form class="grade-entry-form ${state.ui.showGradeEntryForm ? "show" : ""}" id="grade-form">
-          <label>Name <small>optional</small><input name="title" placeholder="Leer = automatische Prüfung" /></label>
-          <label>Datum<input name="date" type="date" value="${todayIso()}" /></label>
-          <label>Note<input name="value" required type="number" ${gradeInputAttrs()} placeholder="z. B. 5.75" /></label>
-          <button class="primary-button" type="submit">Prüfung speichern</button>
+          <input type="hidden" name="gradeId" value="${C.escapeHtml(editingGrade?.id || "")}" />
+          <label>Name <small>optional</small><input name="title" value="${C.escapeHtml(gradeFormTitle)}" /></label>
+          <label>Datum<input name="date" type="date" value="${C.escapeHtml(gradeFormDate)}" /></label>
+          <label>Note<input name="value" type="number" ${gradeInputAttrs()} value="${C.escapeHtml(gradeFormValue)}" /></label>
+          ${renderGradeModeFields(subject, { weight: gradeFormWeight, categoryId: gradeFormCategory, includeFolderToggle: !editingGrade })}
+          <button class="primary-button" type="submit">${editingGrade ? "Prüfung aktualisieren" : "Prüfung speichern"}</button>
         </form>
-        ${state.ui.showGradeEntryForm ? "" : `<section class="grade-entry-list">
+        ${state.ui.showGradeEntryForm ? "" : `
+        ${renderCategoryBreakdown(subject)}
+        <section class="grade-entry-list">
           ${subject.grades.map(renderGradeEntryRow).join("") || `<div class="empty-grade-list">Drücke +, um die erste Prüfung einzutragen.</div>`}
         </section>`}
       </section>
@@ -1126,19 +1523,30 @@
     return `
       <section class="grade-page">
         <div class="grade-page-header folder-detail-header">
-          <button class="secondary-button back-to-subject-detail" type="button">Zurück</button>
-          <h1>${C.escapeHtml(group.title)}</h1>
+          <button class="icon-button back-arrow-button back-to-subject-detail" type="button" title="Zurück" aria-label="Zurück zum Fach">&#8249;</button>
+          <h1 ${fitTitleStyle(group.title)}>${C.escapeHtml(group.title)}</h1>
           <button class="round-add" id="toggle-partial-entry-form" type="button" aria-label="Teilprüfung hinzufügen">+</button>
         </div>
         <div class="subject-score-row partial-score-row">
           <article><span>Fach</span><strong>${C.escapeHtml(subject.name)}</strong></article>
           <article><span>Durchschnitt</span><strong>${avg === null ? "–" : avg.toFixed(2)}</strong></article>
-          <article><span>Gewicht</span><strong>1</strong></article>
+          <article class="partial-weight-card">
+            <span>Zählt</span>
+            <button class="partial-weight-button" type="button" aria-label="Gewichtung ändern">${formatWeightPercentLabel(gradeWeight(group))}</button>
+          </article>
         </div>
+        ${state.ui.showPartialWeightForm ? `
+          <form class="grade-entry-form show partial-weight-form" id="partial-weight-form">
+            <label>Gewichtung <small>x oder %</small>
+              <input name="weight" type="text" inputmode="decimal" value="${C.escapeHtml(formatWeightInput(gradeWeight(group)))}" />
+            </label>
+            <button class="primary-button" type="submit">Gewichtung speichern</button>
+          </form>
+        ` : ""}
         <form class="grade-entry-form ${state.ui.showPartialEntryForm ? "show" : ""}" id="partial-grade-form">
-          <label>Name <small>optional</small><input name="title" placeholder="Leer = automatische Teilprüfung" /></label>
+          <label>Name <small>optional</small><input name="title" /></label>
           <label>Datum<input name="date" type="date" value="${todayIso()}" /></label>
-          <label>Note<input name="value" required type="number" ${gradeInputAttrs()} placeholder="z. B. 5.25" /></label>
+          <label>Note<input name="value" required type="number" ${gradeInputAttrs()} /></label>
           <button class="primary-button" type="submit">Teilprüfung speichern</button>
         </form>
         ${state.ui.showPartialEntryForm ? "" : `<section class="grade-entry-list">
@@ -1253,7 +1661,8 @@
   };
 
   const personalCards = () => state.flashcards.filter((card) => card.source !== "database");
-  const recommendedPack = () => filteredLibrary()[0] || state.cardLibrary[0];
+  const selectedLibraryPack = () => state.cardLibrary.find((pack) => pack.id === state.ui.selectedCardPackId) || null;
+  const recommendedPack = () => selectedLibraryPack() || filteredLibrary()[0] || state.cardLibrary[0];
   const personalDecks = () => {
     const groups = new Map();
     personalCards().forEach((card) => {
@@ -1263,6 +1672,510 @@
       groups.set(title, current);
     });
     return [...groups.values()].sort((a, b) => b.cards.length - a.cards.length);
+  };
+  const currentDeckMeta = () => {
+    if (state.ui.cardStudyMode === "due") return { id: "due", title: "Heute fällig", subtitle: "Fällige Wiederholung" };
+    if (state.ui.cardStudyMode === "personal") {
+      const title = state.ui.selectedCardSubject || "Persönliche Karten";
+      return { id: `personal:${title}`, title, subtitle: "Eigener Stapel" };
+    }
+    const pack = recommendedPack();
+    return { id: `recommended:${pack?.id || "cards"}`, title: pack?.title || "Empfohlener Stapel", subtitle: pack?.subject || "Lynxly Datenbank" };
+  };
+  const baseStudyCards = () => {
+    if (state.ui.cardStudyMode === "due") return dueCards();
+    if (state.ui.cardStudyMode === "personal") {
+      return state.flashcards
+        .filter((card) => card.source !== "database")
+        .filter((card) => !state.ui.selectedCardSubject || (card.title || card.subject) === state.ui.selectedCardSubject || card.subject === state.ui.selectedCardSubject)
+        .map((card) => ({ ...card, ...cardScheduleFor(card.id) }));
+    }
+    const pack = recommendedPack();
+    if (!pack) return [];
+    const limit = isPlus() ? pack.cards.length : Math.min(pack.freeCount || pack.cards.length, pack.cards.length);
+    return pack.cards.slice(0, limit).map((card, index) => ({
+      id: `${pack.id}-${index}`,
+      subject: pack.subject,
+      title: pack.title,
+      packId: pack.id,
+      source: "database",
+      published: true,
+      ...card,
+      ...cardScheduleFor(`${pack.id}-${index}`)
+    }));
+  };
+  const activeStudyCards = () => {
+    const session = state.cardStudySession || {};
+    if ((session.active || session.completed) && Array.isArray(session.cardIds) && session.cardIds.length) {
+      const all = new Map(allCardsForReview().map((card) => [card.id, card]));
+      return session.cardIds.map((id) => all.get(id)).filter(Boolean);
+    }
+    return baseStudyCards();
+  };
+  const learningModeOption = (id) => learningModeOptions.find((option) => option.id === id) || learningModeOptions[0];
+  const shuffleList = (items) => [...items].sort(() => Math.random() - 0.5);
+  const normalizeAnswerText = (value) => String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[.,!?;:"'’`´()[\]{}]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const answerVariants = (answer) => {
+    const raw = String(answer || "");
+    const variants = raw
+      .split(/\/|;|,|\boder\b|\bor\b|\|/i)
+      .map(normalizeAnswerText)
+      .filter(Boolean);
+    return [...new Set([normalizeAnswerText(raw), ...variants].filter(Boolean))];
+  };
+  const answerMatches = (input, answer) => {
+    const clean = normalizeAnswerText(input);
+    if (!clean) return false;
+    return answerVariants(answer).some((variant) => clean === variant);
+  };
+  const setCardReviewOnly = (card, rating) => {
+    if (!card?.id) return;
+    const wasDue = cardIsDue(card);
+    rememberCardDueToday(card, wasDue);
+    state.cardSchedule[card.id] = { rating, nextReview: addDays(todayIso(), reviewOffsetForRating(rating)), lastReviewed: todayIso() };
+    state.cardReviewStatus = state.cardReviewStatus || {};
+    state.cardReviewStatus[card.id] = rating;
+    const ownedCard = state.flashcards.find((item) => item.id === card.id);
+    if (ownedCard) ownedCard.reviewCount = Number(ownedCard.reviewCount || 0) + 1;
+  };
+  const modeRewardKey = (deckId, mode) => `${deckId || "deck"}:${mode || "mode"}`;
+  const deckModeRewardToday = (deckId, mode) => {
+    const reward = state.deckModeRewards?.[modeRewardKey(deckId, mode)];
+    return reward?.date === todayIso() ? reward : null;
+  };
+  const awardDeckModeReward = (deckId, mode, fullXp, reason, reducedXp = 10) => {
+    ensureGamification();
+    state.deckModeRewards = state.deckModeRewards && typeof state.deckModeRewards === "object" && !Array.isArray(state.deckModeRewards) ? state.deckModeRewards : {};
+    const key = modeRewardKey(deckId, mode);
+    const previous = deckModeRewardToday(deckId, mode);
+    const xp = previous ? Math.max(0, Number(reducedXp || 0)) : Math.max(0, Number(fullXp || 0));
+    const cleanReason = previous ? "Übungsbonus" : reason;
+    const count = previous ? Number(previous.count || 1) + 1 : 1;
+    state.deckModeRewards[key] = { date: todayIso(), count, xp, fullXp: Number(fullXp || 0), mode };
+    if (xp > 0) {
+      awardXp(xp, cleanReason);
+      state.dailyDeckStats.deckXp = Number(state.dailyDeckStats.deckXp || 0) + xp;
+    }
+    return { xp, repeated: Boolean(previous), reason: cleanReason };
+  };
+  const awardModeCardXp = (card, amount, reason) => {
+    if (!card?.id) return 0;
+    ensureGamification();
+    recordCardReviewAction(1);
+    const today = todayIso();
+    const previous = state.cardXpHistory?.[card.id];
+    if (previous?.date === today && Number(previous.xp || 0) > 0) return 0;
+    const xp = Math.max(0, Number(amount || 0));
+    state.cardXpHistory[card.id] = { ...previous, date: today, xp, due: Boolean(previous?.due), mode: state.cardStudySession?.mode || "cards" };
+    if (xp > 0) {
+      awardXp(xp, reason);
+      state.dailyDeckStats.cardXp = Number(state.dailyDeckStats.cardXp || 0) + xp;
+    }
+    return xp;
+  };
+  const cardsForLearningMode = (modeId) => {
+    const option = learningModeOption(modeId);
+    const cards = baseStudyCards();
+    const due = cards.filter(cardIsDue);
+    const early = cards.filter((card) => !cardIsDue(card));
+    const ordered = [...due, ...early];
+    const limit = modeId === "match" ? Math.min(10, Math.max(2, Math.min(option.target, ordered.length || option.target))) : option.target;
+    return ordered.slice(0, Math.min(limit, ordered.length));
+  };
+  const choiceOptionsForCard = (card) => {
+    const pool = allCardsForReview()
+      .filter((item) => item.id !== card.id)
+      .sort((a, b) => (a.subject === card.subject ? -1 : 1) - (b.subject === card.subject ? -1 : 1))
+      .map((item) => item.answer)
+      .filter(Boolean);
+    const fallback = ["Noch nicht sicher", "Andere Lösung", "Passt nicht", "Wiederholen"];
+    const options = [card.answer, ...pool, ...fallback]
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)
+      .filter((item, index, list) => list.findIndex((value) => normalizeAnswerText(value) === normalizeAnswerText(item)) === index)
+      .slice(0, 4);
+    while (options.length < 4) options.push(`Option ${options.length + 1}`);
+    return shuffleList(options);
+  };
+  const buildTestQuestions = (cards) => cards.map((card, index) => ({
+    cardId: card.id,
+    type: index % 2 === 0 ? "write" : "choice",
+    options: index % 2 === 0 ? [] : choiceOptionsForCard(card)
+  }));
+  const resetCardStudySession = () => {
+    state.cardStudySession = defaultCardStudySession();
+    state.activeModeSession = {};
+    state.learningMode = "";
+    state.ui.cardStudyIndex = 0;
+  };
+  const startDeckSession = (modeId) => {
+    const option = learningModeOption(modeId);
+    const meta = currentDeckMeta();
+    const cards = cardsForLearningMode(option.id);
+    if (!cards.length) return;
+    const matchCards = option.id === "match" ? cards.slice(0, Math.min(10, Math.max(2, cards.length))) : [];
+    const allDeckDueIds = baseStudyCards().filter(cardIsDue).map((card) => card.id);
+    const session = {
+      choosing: false,
+      active: true,
+      completed: false,
+      mode: option.id,
+      deckId: meta.id,
+      deckTitle: meta.title,
+      optionId: option.id,
+      target: option.id === "match" ? matchCards.length : cards.length,
+      cardIds: cards.map((card) => card.id),
+      dueCardIds: allDeckDueIds,
+      reviewedIds: [],
+      ratings: [],
+      answers: [],
+      testQuestions: option.id === "test" ? buildTestQuestions(cards) : [],
+      matchPairs: matchCards.map((card) => ({ id: card.id, question: card.question, answer: card.answer, subject: card.subject })),
+      promptOrder: shuffleList(matchCards.map((card) => card.id)),
+      answerOrder: shuffleList(matchCards.map((card) => card.id)),
+      matchedIds: [],
+      selectedPromptId: "",
+      selectedAnswerId: "",
+      currentAnswer: "",
+      selectedChoice: "",
+      awaitingNext: false,
+      lastResult: null,
+      correct: 0,
+      wrong: 0,
+      xpEarned: 0,
+      cardXp: 0,
+      deckXp: 0,
+      comboXp: 0,
+      bonusXp: 0,
+      combo: 0,
+      maxCombo: 0,
+      comboAwards: [],
+      mistakesCreated: 0,
+      perfect: true,
+      wrongAttempts: 0,
+      startedAt: new Date().toISOString(),
+      summary: null
+    };
+    state.learningMode = option.id;
+    state.cardStudySession = session;
+    state.activeModeSession = { ...session };
+    state.ui.cardStudyIndex = 0;
+  };
+  const completeWeeklyDeckChallenge = () => {
+    const challenge = state.weeklyDeckChallenge;
+    if (!challenge || challenge.rewarded) return 0;
+    challenge.progress = Math.min(Number(challenge.target || 5), Number(challenge.progress || 0) + 1);
+    if (challenge.progress >= Number(challenge.target || 5)) {
+      challenge.rewarded = true;
+      const reward = Number(challenge.rewardXp || 150);
+      awardXp(reward, "Wochenchallenge geschafft");
+      return reward;
+    }
+    return 0;
+  };
+  const completeDeckSession = () => {
+    const session = { ...state.cardStudySession };
+    if (!session.active || session.completed) return;
+    const mode = learningModeOption(session.mode);
+    const answers = Array.isArray(session.answers) ? session.answers : [];
+    const reviewedIds = Array.isArray(session.reviewedIds) ? session.reviewedIds : [];
+    const processed = session.mode === "match"
+      ? Number(session.matchedIds?.length || 0)
+      : (session.mode === "cards" ? reviewedIds.length : answers.length);
+    const correct = session.mode === "cards"
+      ? Number(session.ratings?.filter((rating) => rating === "good" || rating === "easy").length || 0)
+      : (session.mode === "match" ? Number(session.matchedIds?.length || 0) : answers.filter((answer) => answer.correct).length);
+    const wrong = session.mode === "match"
+      ? Number(session.wrongAttempts || 0)
+      : (session.mode === "cards" ? Number(session.ratings?.filter((rating) => rating === "again" || rating === "hard").length || 0) : answers.filter((answer) => !answer.correct).length);
+    let xpEarned = Number(session.xpEarned || 0);
+    let deckXp = 0;
+    let bonusXp = Number(session.bonusXp || 0);
+    let repeatedDeck = false;
+    const scorePercent = processed ? Math.round((correct / processed) * 100) : 0;
+    if (session.mode === "test") {
+      const scoreBonus = scorePercent >= 80 ? 20 : 0;
+      const perfectBonus = scorePercent === 100 && processed > 0 ? 40 : 0;
+      const reward = awardDeckModeReward(session.deckId, session.mode, 50 + scoreBonus + perfectBonus, "Test abgeschlossen", 10);
+      repeatedDeck = reward.repeated;
+      xpEarned += reward.xp;
+      deckXp += reward.xp;
+      bonusXp += reward.repeated ? 0 : scoreBonus + perfectBonus;
+      state.testResults = [{ id: uid("test"), deckId: session.deckId, deckTitle: session.deckTitle, scorePercent, correct, wrong, xp: reward.xp, date: todayIso() }, ...(state.testResults || [])].slice(0, 80);
+      recordCardReviewAction(Math.max(1, processed));
+    }
+    if (session.mode === "match") {
+      const perfectBonus = Number(session.wrongAttempts || 0) === 0 ? 15 : 0;
+      const reward = awardDeckModeReward(session.deckId, session.mode, 30 + perfectBonus, "Match Sprint", 8);
+      repeatedDeck = reward.repeated;
+      xpEarned += reward.xp;
+      deckXp += reward.xp;
+      bonusXp += reward.repeated ? 0 : perfectBonus;
+      state.matchResults = [{ id: uid("match"), deckId: session.deckId, deckTitle: session.deckTitle, pairs: processed, mistakes: Number(session.wrongAttempts || 0), xp: reward.xp, date: todayIso() }, ...(state.matchResults || [])].slice(0, 80);
+      recordCardReviewAction(Math.max(1, processed));
+    }
+    const challengeXp = repeatedDeck ? 0 : completeWeeklyDeckChallenge();
+    xpEarned += challengeXp;
+    bonusXp += challengeXp;
+    const existing = state.deckSessions[session.deckId];
+    const currentCount = existing?.date === todayIso() ? Number(existing.count || 0) : 0;
+    state.deckSessions[session.deckId] = { date: todayIso(), count: currentCount + 1 };
+    state.dailyDeckStats.sessionsCompleted = Number(state.dailyDeckStats.sessionsCompleted || 0) + 1;
+    if (!repeatedDeck) state.dailyDeckStats.fullSessions = Number(state.dailyDeckStats.fullSessions || 0) + 1;
+    const nextReviewDate = session.cardIds
+      .map((id) => state.cardSchedule[id]?.nextReview)
+      .filter(Boolean)
+      .sort()[0] || "";
+    const completedAt = new Date().toISOString();
+    const summary = {
+      mode: mode.title,
+      modeId: session.mode,
+      cardsReviewed: processed,
+      correct,
+      wrong,
+      scorePercent,
+      xpEarned,
+      deckXp,
+      cardXp: Number(session.cardXp || 0),
+      comboXp: Number(session.comboXp || 0),
+      bonusXp,
+      challengeXp,
+      mistakesCreated: Number(session.mistakesCreated || 0),
+      nextReviewDate,
+      allDueFinished: session.dueCardIds?.length > 0 && session.dueCardIds.every((id) => reviewedIds.includes(id)),
+      perfect: wrong === 0,
+      repeatedDeck,
+      recommendation: wrong > 0 ? "Fehler wiederholen" : "Noch eine Runde"
+    };
+    state.modeHistory = [
+      { id: uid("mode"), deckId: session.deckId, deckTitle: session.deckTitle, modeId: session.mode, completedAt, ...summary },
+      ...(state.modeHistory || [])
+    ].slice(0, 120);
+    state.deckSessionHistory = [
+      { id: uid("deck-session"), deckId: session.deckId, deckTitle: session.deckTitle, optionId: session.optionId, completedAt, ...summary },
+      ...(state.deckSessionHistory || [])
+    ].slice(0, 80);
+    state.cardStudySession = {
+      ...state.cardStudySession,
+      ...session,
+      active: false,
+      completed: true,
+      deckXp,
+      bonusXp,
+      xpEarned,
+      summary,
+      completedAt
+    };
+    state.activeModeSession = { ...state.cardStudySession };
+    state.ui.cardStudyIndex = 0;
+    evaluateBadges();
+    checkClassBonus();
+  };
+  const rateDeckSessionCard = (card, rating) => {
+    const session = { ...state.cardStudySession };
+    if (!session.active || !card || session.mode !== "cards") return;
+    const wasDue = cardIsDue(card);
+    scheduleCardReview(card, rating, { rewardCard: false, mistakeReward: false });
+    const cardXp = awardCardReviewXp(card, wasDue);
+    let combo = Number(session.combo || 0);
+    let maxCombo = Number(session.maxCombo || 0);
+    let comboXp = Number(session.comboXp || 0);
+    let xpEarned = Number(session.xpEarned || 0) + cardXp;
+    const comboAwards = Array.isArray(session.comboAwards) ? [...session.comboAwards] : [];
+    let perfect = session.perfect !== false;
+    if (rating === "again") {
+      combo = 0;
+      perfect = false;
+    } else if (rating === "good" || rating === "easy") {
+      combo += 1;
+      maxCombo = Math.max(maxCombo, combo);
+      const threshold = [10, 5, 3].find((value) => combo >= value && !comboAwards.includes(value));
+      if (threshold) {
+        const reward = comboRewards[threshold] || 0;
+        comboAwards.push(threshold);
+        if (reward > 0) {
+          awardXp(reward, "Combo");
+          comboXp += reward;
+          xpEarned += reward;
+        }
+      }
+    }
+    const reviewedIds = [...new Set([...(session.reviewedIds || []), card.id])];
+    const ratings = [...(session.ratings || []), rating];
+    const answers = [...(session.answers || [])];
+    if (rating === "again" || rating === "hard") {
+      answers.push({
+        id: uid("answer"),
+        cardId: card.id,
+        subject: card.subject,
+        question: card.question,
+        correctAnswer: card.answer,
+        userAnswer: rating === "again" ? "Nicht gewusst" : "Unsicher",
+        correct: false,
+        xp: cardXp,
+        type: "cards",
+        savedMistake: false
+      });
+    }
+    state.cardStudySession = {
+      ...state.cardStudySession,
+      ...session,
+      reviewedIds,
+      ratings,
+      answers,
+      xpEarned,
+      cardXp: Number(session.cardXp || 0) + cardXp,
+      comboXp,
+      combo,
+      maxCombo,
+      comboAwards,
+      perfect
+    };
+    state.activeModeSession = { ...state.cardStudySession };
+    if (reviewedIds.length >= Number(session.target || session.cardIds?.length || 0)) {
+      completeDeckSession();
+    } else {
+      state.ui.cardStudyIndex = Math.min(Number(state.ui.cardStudyIndex || 0) + 1, Math.max(0, Number(session.cardIds?.length || 1) - 1));
+    }
+  };
+  const pushModeAnswer = (answer) => {
+    const session = { ...state.cardStudySession };
+    const answers = [...(session.answers || []), answer];
+    state.cardStudySession = {
+      ...state.cardStudySession,
+      ...session,
+      answers,
+      reviewedIds: [...new Set([...(session.reviewedIds || []), answer.cardId])],
+      correct: Number(session.correct || 0) + (answer.correct ? 1 : 0),
+      wrong: Number(session.wrong || 0) + (answer.correct ? 0 : 1),
+      perfect: answer.correct ? session.perfect !== false : false,
+      xpEarned: Number(session.xpEarned || 0) + Number(answer.xp || 0),
+      cardXp: Number(session.cardXp || 0) + Number(answer.xp || 0),
+      awaitingNext: true,
+      lastResult: answer
+    };
+    state.activeModeSession = { ...state.cardStudySession };
+  };
+  const answerCurrentCard = (rawAnswer) => {
+    const session = state.cardStudySession || {};
+    const cards = activeStudyCards();
+    const index = Math.min(Math.max(0, Number(state.ui.cardStudyIndex || 0)), Math.max(0, cards.length - 1));
+    const card = cards[index];
+    if (!session.active || !card || session.awaitingNext) return;
+    const correct = answerMatches(rawAnswer, card.answer);
+    setCardReviewOnly(card, correct ? "good" : "again");
+    const xp = correct ? awardModeCardXp(card, 8, "Richtig geschrieben") : 0;
+    if (!correct) recordCardReviewAction(1);
+    pushModeAnswer({
+      id: uid("answer"),
+      cardId: card.id,
+      subject: card.subject,
+      question: card.question,
+      correctAnswer: card.answer,
+      userAnswer: rawAnswer,
+      correct,
+      xp,
+      type: "write",
+      savedMistake: false
+    });
+  };
+  const answerChoiceCard = (selected) => {
+    const session = state.cardStudySession || {};
+    const cards = activeStudyCards();
+    const index = Math.min(Math.max(0, Number(state.ui.cardStudyIndex || 0)), Math.max(0, cards.length - 1));
+    const card = cards[index];
+    if (!session.active || !card || session.awaitingNext) return;
+    const correct = normalizeAnswerText(selected) === normalizeAnswerText(card.answer);
+    setCardReviewOnly(card, correct ? "good" : "again");
+    const xp = correct ? awardModeCardXp(card, 4, "Choice korrekt") : 0;
+    if (!correct) recordCardReviewAction(1);
+    pushModeAnswer({
+      id: uid("answer"),
+      cardId: card.id,
+      subject: card.subject,
+      question: card.question,
+      correctAnswer: card.answer,
+      userAnswer: selected,
+      correct,
+      xp,
+      type: "choice",
+      savedMistake: false
+    });
+  };
+  const answerTestQuestion = (value) => {
+    const session = state.cardStudySession || {};
+    const cards = activeStudyCards();
+    const index = Math.min(Math.max(0, Number(state.ui.cardStudyIndex || 0)), Math.max(0, cards.length - 1));
+    const card = cards[index];
+    const question = session.testQuestions?.[index] || { type: "write" };
+    if (!session.active || !card || session.awaitingNext) return;
+    const correct = question.type === "choice" ? normalizeAnswerText(value) === normalizeAnswerText(card.answer) : answerMatches(value, card.answer);
+    setCardReviewOnly(card, correct ? "good" : "again");
+    pushModeAnswer({
+      id: uid("answer"),
+      cardId: card.id,
+      subject: card.subject,
+      question: card.question,
+      correctAnswer: card.answer,
+      userAnswer: value,
+      correct,
+      xp: 0,
+      type: question.type,
+      savedMistake: false
+    });
+  };
+  const advanceModeSession = () => {
+    const session = state.cardStudySession || {};
+    const cards = activeStudyCards();
+    const index = Number(state.ui.cardStudyIndex || 0);
+    const answered = session.mode === "match" ? Number(session.matchedIds?.length || 0) : (session.mode === "cards" ? Number(session.reviewedIds?.length || 0) : Number(session.answers?.length || 0));
+    const isLast = index >= cards.length - 1 || answered >= Number(session.target || cards.length);
+    if (isLast) {
+      completeDeckSession();
+      return;
+    }
+    state.cardStudySession = {
+      ...session,
+      awaitingNext: false,
+      lastResult: null,
+      currentAnswer: "",
+      selectedChoice: ""
+    };
+    state.activeModeSession = { ...state.cardStudySession };
+    state.ui.cardStudyIndex = Math.min(index + 1, Math.max(0, cards.length - 1));
+  };
+  const saveModeMistake = (answerIndex) => {
+    const session = { ...state.cardStudySession };
+    const answers = [...(session.answers || [])];
+    const answer = answers[Number(answerIndex)];
+    if (!answer || answer.savedMistake || answer.correct) return;
+    saveMistake({
+      subject: answer.subject || "Karten",
+      topic: session.deckTitle || "Karten",
+      question: answer.question,
+      correctAnswer: answer.correctAnswer,
+      userAnswer: answer.userAnswer || "Keine Antwort",
+      explanation: `Aus dem Lernmodus ${learningModeOption(session.mode).title} gespeichert.`,
+      source: `${learningModeOption(session.mode).title} · Karten`
+    }, { reward: true });
+    answer.savedMistake = true;
+    answers[Number(answerIndex)] = answer;
+    const mistakesCreated = Number(session.mistakesCreated || 0) + 1;
+    state.cardStudySession = {
+      ...state.cardStudySession,
+      ...session,
+      answers,
+      mistakesCreated,
+      lastResult: session.lastResult?.id === answer.id ? { ...session.lastResult, savedMistake: true } : session.lastResult,
+      summary: session.summary ? { ...session.summary, mistakesCreated } : session.summary
+    };
+    state.activeModeSession = { ...state.cardStudySession };
   };
 
   const renderStack = (title, subtitle, count, kind, actionText, extra = "") => `
@@ -1290,53 +2203,218 @@
       </div>
     </button>
   ` : C.emptyState("Keine Karte", "Lade einen Stapel oder erstelle deine erste Karte.");
+  const modeIcon = (mode) => ({
+    cards: `<span class="mode-symbol mode-symbol-cards" aria-hidden="true"><i></i><i></i><b></b></span>`,
+    write: `<span class="mode-symbol mode-symbol-write" aria-hidden="true"><i></i><b></b></span>`,
+    choice: `<span class="mode-symbol mode-symbol-choice" aria-hidden="true"><i></i><b></b></span>`,
+    test: `<span class="mode-symbol mode-symbol-test" aria-hidden="true"><i></i><b></b></span>`,
+    match: `<span class="mode-symbol mode-symbol-match" aria-hidden="true"><i></i><i></i><b></b></span>`
+  })[mode] || `<span class="mode-symbol mode-symbol-cards" aria-hidden="true"><i></i><i></i><b></b></span>`;
 
-  const activeStudyCards = () => {
-    if (state.ui.cardStudyMode === "due") return dueCards();
-    if (state.ui.cardStudyMode === "personal") {
-      return state.flashcards
-        .filter((card) => card.source !== "database")
-        .filter((card) => !state.ui.selectedCardSubject || (card.title || card.subject) === state.ui.selectedCardSubject || card.subject === state.ui.selectedCardSubject)
-        .map((card) => ({ ...card, ...cardScheduleFor(card.id) }));
-    }
-    const pack = recommendedPack();
-    if (!pack) return [];
-    const limit = isPlus() ? pack.cards.length : Math.min(pack.freeCount || pack.cards.length, pack.cards.length);
-    return pack.cards.slice(0, limit).map((card, index) => ({
-      id: `${pack.id}-${index}`,
-      subject: pack.subject,
-      title: pack.title,
-      packId: pack.id,
-      source: "database",
-      published: true,
-      ...card,
-      ...cardScheduleFor(`${pack.id}-${index}`)
-    }));
+  const renderDeckSessionChoice = () => {
+    const meta = currentDeckMeta();
+    const deckCards = baseStudyCards();
+    const dueInDeck = deckCards.filter(cardIsDue).length;
+    return `
+      ${C.sectionTitle("Karten", meta.title)}
+      <section class="deck-session-choice card-study-view">
+        <div class="study-view-header">
+          <button class="secondary-button close-study-view" type="button">Zurück</button>
+          <strong>${C.escapeHtml(meta.subtitle)}</strong>
+        </div>
+        <article class="session-progress-card">
+          ${C.mascot("mascot-small")}
+          <div>
+            <span class="eyebrow">Lernmodus wählen</span>
+            <h2>${C.escapeHtml(meta.title)}</h2>
+            <p>${dueInDeck ? `${dueInDeck} Karten sind heute fällig.` : `${deckCards.length} Karten können freiwillig wiederholt werden.`} Wähle, wie du jetzt lernen willst.</p>
+          </div>
+        </article>
+        <div class="learning-mode-grid">
+          ${learningModeOptions.map((option) => {
+            const cards = cardsForLearningMode(option.id);
+            const reward = deckModeRewardToday(meta.id, option.id);
+            const disabled = option.id === "match" ? cards.length < 2 : cards.length < 1;
+            return `
+              <button class="learning-mode-card start-deck-session ${disabled ? "disabled" : ""}" data-mode="${option.id}" type="button" ${disabled ? "disabled" : ""} aria-label="${option.title} starten, ${option.duration}, XP ${option.xp}">
+                ${modeIcon(option.id)}
+                <span>${C.escapeHtml(option.title)}</span>
+                <small>${C.escapeHtml(option.duration)} · XP ${C.escapeHtml(option.xp)} · ${C.escapeHtml(option.difficulty)}</small>
+                <em>${reward ? "Übungsbonus" : `${cards.length} bereit`}</em>
+              </button>
+            `;
+          }).join("")}
+        </div>
+        <p class="panel-note">XP gibt es nur für echte Antworten, Bewertungen und abgeschlossene Runden. Öffnen oder Umdrehen zählt nicht.</p>
+      </section>
+    `;
   };
-
+  const renderDeckSessionSummary = () => {
+    const session = state.cardStudySession || {};
+    const summary = session.summary || {};
+    const progress = levelProgress();
+    const wrongAnswers = (session.answers || []).map((answer, index) => ({ ...answer, index })).filter((answer) => !answer.correct);
+    return `
+      ${C.sectionTitle("Karten", "Zusammenfassung")}
+      <section class="session-summary-card card-study-view">
+        <div class="study-view-header">
+          <button class="secondary-button close-study-view" type="button">Zurück</button>
+          <strong>${C.escapeHtml(summary.mode || session.deckTitle || "Stapel")}</strong>
+        </div>
+        <article class="session-progress-card celebration">
+          ${C.mascot("mascot-small")}
+          <div>
+            <span class="eyebrow">${C.escapeHtml(session.deckTitle || "Stapel")}</span>
+            <h2>${Number(summary.xpEarned || 0)} XP verdient</h2>
+            <p>${summary.repeatedDeck ? "Diese Runde war heute ein reduzierter Übungsbonus." : "Dein Fortschritt wurde gespeichert."}</p>
+          </div>
+        </article>
+        <div class="session-summary-grid">
+          <article><span>Bearbeitet</span><strong>${Number(summary.cardsReviewed || 0)}</strong></article>
+          <article><span>Richtig</span><strong>${Number(summary.correct || 0)}</strong></article>
+          <article><span>Falsch</span><strong>${Number(summary.wrong || 0)}</strong></article>
+          <article><span>Score</span><strong>${Number(summary.scorePercent || 0)}%</strong></article>
+          <article><span>Karten-XP</span><strong>${Number(summary.cardXp || 0)}</strong></article>
+          <article><span>Bonus-XP</span><strong>${Number(summary.bonusXp || 0)}</strong></article>
+          <article><span>Fehler gespeichert</span><strong>${Number(summary.mistakesCreated || 0)}</strong></article>
+        </div>
+        ${wrongAnswers.length ? `<section class="wrong-answer-list"><h2>Fehler aus dieser Runde</h2>${wrongAnswers.map((answer) => `<article><strong>${C.escapeHtml(answer.question)}</strong><p>Deine Antwort: ${C.escapeHtml(answer.userAnswer || "Keine Antwort")}</p><p>Richtig: ${C.escapeHtml(answer.correctAnswer)}</p><button class="secondary-button save-mode-mistake" data-answer-index="${answer.index}" type="button" ${answer.savedMistake ? "disabled" : ""}>${answer.savedMistake ? "Gespeichert" : "In Fehlerbank speichern"}</button></article>`).join("")}</section>` : ""}
+        <div class="session-summary-line">
+          <span>Nächste Wiederholung</span>
+          <strong>${summary.nextReviewDate ? formatDate(summary.nextReviewDate, { day: "2-digit", month: "short" }) : "Noch offen"}</strong>
+        </div>
+        <div class="session-summary-line">
+          <span>Nächste Empfehlung</span>
+          <strong>${C.escapeHtml(summary.recommendation || "Noch eine Runde")}</strong>
+        </div>
+        <div class="session-summary-line">
+          <span>Bis ${C.escapeHtml(progress.next?.title || "Max Level")}</span>
+          <strong>${progress.remaining} XP</strong>
+        </div>
+        ${progressBar(Number(state.xpTotal || 0) - progress.current.min, progress.end - progress.current.min, `Fortschritt bis ${progress.next ? progress.next.title : "Maximalziel"}`, "large")}
+        <div class="continue-actions">
+          <button class="primary-button start-more-cards" data-mode="${C.escapeHtml(session.mode || "cards")}" type="button">Nochmal lernen</button>
+          <button class="secondary-button choose-other-deck" type="button">Anderen Modus wählen</button>
+          <a class="secondary-button" href="#mistakes">Fehler wiederholen</a>
+          <button class="secondary-button close-study-view" type="button">Zurück zur Übersicht</button>
+        </div>
+      </section>
+    `;
+  };
+  const renderModeFeedback = (result, isLast) => result ? `
+    <div class="mode-feedback ${result.correct ? "correct" : "wrong"}" aria-live="polite">
+      <strong>${result.correct ? `Richtig! +${Number(result.xp || 0)} XP` : `Falsch. Richtige Antwort: ${C.escapeHtml(result.correctAnswer)}`}</strong>
+      ${!result.correct ? `<button class="secondary-button save-mode-mistake" data-answer-index="${Math.max(0, (state.cardStudySession.answers || []).length - 1)}" type="button" ${result.savedMistake ? "disabled" : ""}>${result.savedMistake ? "In Fehlerbank gespeichert" : "In Fehlerbank speichern"}</button>` : ""}
+      <button class="primary-button mode-next-card" type="button">${isLast ? "Zusammenfassung" : "Weiter"}</button>
+    </div>
+  ` : "";
+  const renderWriteMode = (card, index, cards) => {
+    const session = state.cardStudySession || {};
+    const isLast = index >= cards.length - 1;
+    return `
+      <article class="mode-question-card">
+        <small>${C.escapeHtml(card.subject)}</small>
+        <h2>${C.escapeHtml(card.question)}</h2>
+      </article>
+      <form class="mode-answer-form" data-mode="write">
+        <label>Antwort eingeben<input name="answer" autocomplete="off" ${session.awaitingNext ? "disabled" : ""} placeholder="Deine Antwort" /></label>
+        <button class="primary-button" type="submit" ${session.awaitingNext ? "disabled" : ""}>Prüfen</button>
+      </form>
+      ${renderModeFeedback(session.lastResult, isLast)}
+    `;
+  };
+  const renderChoiceMode = (card, index, cards) => {
+    const session = state.cardStudySession || {};
+    const options = session.mode === "test"
+      ? (session.testQuestions?.[index]?.options || choiceOptionsForCard(card))
+      : choiceOptionsForCard(card);
+    const isLast = index >= cards.length - 1;
+    return `
+      <article class="mode-question-card">
+        <small>${C.escapeHtml(card.subject)}</small>
+        <h2>${C.escapeHtml(card.question)}</h2>
+      </article>
+      <div class="choice-grid" role="group" aria-label="Antwortmöglichkeiten">
+        ${options.map((option) => `<button class="choice-option" data-answer="${C.escapeHtml(option)}" type="button" ${session.awaitingNext ? "disabled" : ""}>${C.escapeHtml(option)}</button>`).join("")}
+      </div>
+      ${renderModeFeedback(session.lastResult, isLast)}
+    `;
+  };
+  const renderTestMode = (card, index, cards) => {
+    const question = state.cardStudySession.testQuestions?.[index] || { type: "write" };
+    return `
+      <div class="mode-tag-row"><span>${question.type === "choice" ? "Choice-Frage" : "Schreib-Frage"}</span><strong>${index + 1} / ${cards.length}</strong></div>
+      ${question.type === "choice" ? renderChoiceMode(card, index, cards) : renderWriteMode(card, index, cards)}
+    `;
+  };
+  const renderMatchMode = () => {
+    const session = state.cardStudySession || {};
+    const pairs = session.matchPairs || [];
+    const pairMap = new Map(pairs.map((pair) => [pair.id, pair]));
+    const matched = new Set(session.matchedIds || []);
+    return `
+      <article class="mode-question-card">
+        <small>Zuordnen</small>
+        <h2>Verbinde Begriff und Lösung.</h2>
+        <p>${matched.size} / ${pairs.length} Paare geschafft</p>
+      </article>
+      <div class="match-board">
+        <div>
+          <span>Fragen</span>
+          ${(session.promptOrder || []).map((id) => {
+            const pair = pairMap.get(id);
+            return `<button class="match-tile mode-match-prompt ${session.selectedPromptId === id ? "selected" : ""}" data-id="${id}" type="button" ${matched.has(id) ? "disabled" : ""}>${C.escapeHtml(pair?.question || "")}</button>`;
+          }).join("")}
+        </div>
+        <div>
+          <span>Antworten</span>
+          ${(session.answerOrder || []).map((id) => {
+            const pair = pairMap.get(id);
+            return `<button class="match-tile mode-match-answer ${session.selectedAnswerId === id ? "selected" : ""}" data-id="${id}" type="button" ${matched.has(id) ? "disabled" : ""}>${C.escapeHtml(pair?.answer || "")}</button>`;
+          }).join("")}
+        </div>
+      </div>
+      ${session.lastResult ? `<div class="mode-feedback ${session.lastResult.correct ? "correct" : "wrong"}" aria-live="polite"><strong>${session.lastResult.correct ? "Passt!" : "Noch nicht. Versuch ein anderes Paar."}</strong></div>` : ""}
+    `;
+  };
   const renderCardStudyView = () => {
+    const session = state.cardStudySession || {};
+    if (session.completed) return renderDeckSessionSummary();
+    if (!session.active) return renderDeckSessionChoice();
     const cards = activeStudyCards();
     const index = Math.min(Math.max(0, Number(state.ui.cardStudyIndex || 0)), Math.max(0, cards.length - 1));
     const card = cards[index];
+    const meta = currentDeckMeta();
+    const mode = learningModeOption(session.mode);
+    const reviewed = Number(session.reviewedIds?.length || 0);
     return `
-      ${C.sectionTitle("Karten", state.ui.cardStudyMode === "personal" ? "Persönliche Karten" : state.ui.cardStudyMode === "due" ? "Heute fällig" : "Empfohlener Stapel")}
+      ${C.sectionTitle("Karten", mode.title)}
       <section class="flashcard-study-area card-study-view">
         <div class="study-view-header">
           <button class="secondary-button close-study-view" type="button">Zurück</button>
           <strong>${cards.length ? `${index + 1} / ${cards.length}` : "0 / 0"}</strong>
         </div>
-        ${renderStudyCard(card)}
-        <div class="study-nav-row">
-          <button class="icon-button study-prev" type="button" ${index <= 0 ? "disabled" : ""} title="Vorherige Karte" aria-label="Vorherige Karte">&#8592;</button>
-          <span>${card ? C.escapeHtml(card.subject) : "Keine Karten"}</span>
-          <button class="icon-button study-next" type="button" ${index >= cards.length - 1 ? "disabled" : ""} title="Nächste Karte" aria-label="Nächste Karte">&#8594;</button>
-        </div>
-        ${card ? `<div class="srs-rating-grid">
-          <button class="srs-rating again" data-rating="again" type="button">Nochmal</button>
-          <button class="srs-rating hard" data-rating="hard" type="button">Schwer</button>
-          <button class="srs-rating good" data-rating="good" type="button">Gut</button>
-          <button class="srs-rating easy" data-rating="easy" type="button">Einfach</button>
-        </div>` : ""}
+        <article class="session-mini-status">
+          <span>${C.escapeHtml(meta.title)}</span><strong>${reviewed || session.answers?.length || session.matchedIds?.length || 0} / ${Number(session.target || cards.length)}</strong>
+          <span>Modus</span><strong>${C.escapeHtml(mode.title)}</strong>
+          <span>XP</span><strong>${Number(session.xpEarned || 0)}</strong>
+        </article>
+        ${session.mode === "cards" ? `${renderStudyCard(card)}
+          <div class="study-nav-row">
+            <button class="icon-button study-prev" type="button" ${index <= 0 ? "disabled" : ""} title="Vorherige Karte" aria-label="Vorherige Karte">&#8592;</button>
+            <span>${card ? C.escapeHtml(card.subject) : "Keine Karten"}</span>
+            <button class="icon-button study-next" type="button" ${index >= cards.length - 1 ? "disabled" : ""} title="Nächste Karte" aria-label="Nächste Karte">&#8594;</button>
+          </div>
+          ${card ? `<div class="srs-rating-grid">
+            <button class="srs-rating again" data-rating="again" type="button">Again</button>
+            <button class="srs-rating hard" data-rating="hard" type="button">Hard</button>
+            <button class="srs-rating good" data-rating="good" type="button">Good</button>
+            <button class="srs-rating easy" data-rating="easy" type="button">Easy</button>
+          </div>` : ""}` : ""}
+        ${session.mode === "write" && card ? renderWriteMode(card, index, cards) : ""}
+        ${session.mode === "choice" && card ? renderChoiceMode(card, index, cards) : ""}
+        ${session.mode === "test" && card ? renderTestMode(card, index, cards) : ""}
+        ${session.mode === "match" ? renderMatchMode() : ""}
       </section>
     `;
   };
@@ -1360,29 +2438,47 @@
   const renderCards = () => {
     if (state.ui.cardStudyOpen) return renderCardStudyView();
     if (state.ui.cardCreateOpen) return renderCardCreatePanel();
-    const personal = personalCards();
     const dueCount = dueCards().length;
     const mistakeCount = openMistakes().length;
-    const recentDecks = personalDecks().slice(0, 5);
+    const query = String(state.ui.cardSearch || "").trim();
+    const queryLower = query.toLowerCase();
+    const libraryResults = query ? filteredLibrary().slice(0, 6) : [];
+    const personalResults = query
+      ? personalDecks().filter((deck) => [deck.title, deck.subject].join(" ").toLowerCase().includes(queryLower)).slice(0, 6)
+      : [];
     return `
       <section class="cards-page sleek-screen">
         <div class="grade-page-header cards-page-header">
           <h1>Karten</h1>
           <button class="round-add cards-header-add" id="toggle-card-create" type="button" aria-label="Karte hinzufügen">+</button>
         </div>
+      <label class="cards-search-shell" for="card-search">
+        ${C.icon("search")}
+        <input id="card-search" type="search" value="${C.escapeHtml(state.ui.cardSearch || "")}" placeholder="Kärtchen oder Stapel suchen" autocomplete="off" />
+      </label>
+      ${query ? `
+        <section class="card-search-results" aria-label="Suchergebnisse für Karten">
+          <div class="sleek-section-title"><h2>Gefunden</h2><span>${libraryResults.length + personalResults.length}</span></div>
+          ${libraryResults.map((pack) => `
+            <button class="search-deck-row" data-stack="library" data-pack-id="${C.escapeHtml(pack.id)}" type="button">
+              <div class="mini-deck-stack database"><i></i><i></i><i></i></div>
+              <div><strong>${C.escapeHtml(pack.title)}</strong><small>${C.escapeHtml(pack.subject)} · Lynxly Datenbank · ${Math.min(isPlus() ? pack.cards.length : pack.freeCount || pack.cards.length, pack.cards.length)} Karten</small></div>
+              <em>Öffnen</em>
+            </button>
+          `).join("")}
+          ${personalResults.map((deck) => `
+            <button class="search-deck-row" data-stack="personal" data-subject="${C.escapeHtml(deck.title)}" type="button">
+              <div class="mini-deck-stack"><i></i><i></i><i></i></div>
+              <div><strong>${C.escapeHtml(deck.title)}</strong><small>${C.escapeHtml(deck.subject)} · persönlicher Stapel</small></div>
+              <em>${deck.cards.length}</em>
+            </button>
+          `).join("")}
+          ${libraryResults.length + personalResults.length ? "" : C.emptyState("Keine Karten gefunden", "Versuche z. B. Französisch, Biologie oder den Namen deines Stapels.")}
+        </section>
+      ` : ""}
       <section class="card-stack-board cards-main-stacks">
         ${renderStack("Heute fällig", "Spaced Repetition", dueCount, "due", dueCount ? "Starten" : "Leer")}
         ${renderStack("Fehlerbank", "Offene Fehler wiederholen", mistakeCount, "mistakes", "Öffnen")}
-      </section>
-      <div class="sleek-section-title cards-recent-title"><h2>Zuletzt genutzt</h2><span>${recentDecks.length}</span></div>
-      <section class="recent-deck-list">
-        ${recentDecks.map((deck) => `
-          <button class="recent-deck-row" data-stack="personal" data-subject="${C.escapeHtml(deck.title)}" type="button">
-            <div class="mini-deck-stack"><i></i><i></i><i></i></div>
-            <div><strong>${C.escapeHtml(deck.title)}</strong><small>${C.escapeHtml(deck.subject)} · persönlicher Stapel</small></div>
-            <em>${deck.cards.length}</em>
-          </button>
-        `).join("") || C.emptyState("Noch keine Stapel", "Drücke auf + und erstelle z. B. einen Stapel „Biologie Kl.1“.")}
       </section>
       </section>
     `;
@@ -1403,7 +2499,6 @@
             <h1>Fehlerbank</h1>
           </div>
           <div class="coach-action-row">
-            <button class="primary-button toggle-mistake-form" type="button">+ Fehler hinzufügen</button>
             <a class="secondary-button" href="#cards">Karten lernen</a>
           </div>
         </div>
@@ -1518,6 +2613,16 @@
     image.src = url;
   });
 
+  const readFileSnippet = async (file) => {
+    if (!file || !file.type.startsWith("text/")) return "";
+    try {
+      const text = await file.text();
+      return text.slice(0, 5000);
+    } catch (error) {
+      return "";
+    }
+  };
+
   const askLynxlyAI = async (message, attachment, imageData) => {
     try {
       const response = await fetch("/api/chat", {
@@ -1548,7 +2653,8 @@
   };
 
   const renderBot = () => {
-    const messages = state.chat.length ? state.chat : [{ id: "intro", role: "bot", text: "Stell deine Frage. Ich helfe dir Schritt für Schritt, ohne dir einfach die fertige Lösung zu geben." }];
+    const hasChat = state.chat.length > 0;
+    const messages = state.chat;
     const attachmentReady = Boolean(state.ui.chatAttachmentName && pendingChatAttachment?.name === state.ui.chatAttachmentName);
     const actions = [
       ["Erkläre das", "Erkläre mir das Schritt für Schritt: "],
@@ -1558,25 +2664,37 @@
       ["Lernplan machen", "Mache daraus einen Lernplan: "]
     ];
     return `
-      <section class="ai-full-page">
+      <section class="ai-full-page ${hasChat ? "has-chat" : "is-empty"}">
         <h1>Lynxly AI</h1>
-        <div class="mascot-card ai-mascot-card">${C.mascot("mascot-small")}<p>Lynxly: dein smarter Lerncoach. Ich erkläre ruhig, stelle Rückfragen und helfe dir beim nächsten Schritt.</p></div>
         <section class="ai-window">
-          <div class="ai-output">
-            ${messages.map((msg) => `<article class="message ${msg.role === "user" ? "user" : "bot"}"><p>${C.escapeHtml(msg.text)}</p>${msg.role === "bot" && msg.id !== "intro" ? `<div class="message-actions"><button class="save-ai-flashcards" data-id="${msg.id}" type="button">Als Karten</button><button class="save-ai-mistake" data-id="${msg.id}" type="button">Als Fehler</button><button class="save-ai-task" data-id="${msg.id}" type="button">Als Aufgabe</button></div>` : ""}</article>`).join("")}
-          </div>
-          ${attachmentReady ? `<div class="attachment-pill">${C.icon("camera")} Foto bereit: ${C.escapeHtml(state.ui.chatAttachmentName)}</div>` : ""}
+          ${hasChat ? `
+            <div class="ai-output">
+              ${messages.map((msg) => `<article class="message ${msg.role === "user" ? "user" : "bot"}"><p>${C.escapeHtml(msg.text)}</p>${msg.role === "bot" ? `<div class="message-actions"><button class="save-ai-flashcards" data-id="${msg.id}" type="button">Als Karten</button><button class="save-ai-mistake" data-id="${msg.id}" type="button">Als Fehler</button><button class="save-ai-task" data-id="${msg.id}" type="button">Als Aufgabe</button></div>` : ""}</article>`).join("")}
+            </div>
+          ` : `
+            <div class="ai-start-screen">
+              <h2>Let's start learning</h2>
+              <p>Lynxly hilft dir Schritt für Schritt, mit Text, Foto, Datei oder Stimme.</p>
+            </div>
+          `}
+          ${attachmentReady ? `<div class="attachment-pill">${C.icon(pendingChatAttachment?.kind === "file" ? "upload" : "camera")} ${pendingChatAttachment?.kind === "file" ? "Datei" : "Foto"} bereit: ${C.escapeHtml(state.ui.chatAttachmentName)}</div>` : ""}
+          <form id="chat-form" class="ai-full-input">
+            <div class="ai-search-shell">
+              <div class="ai-attach-wrap ${state.ui.aiAttachMenuOpen ? "open" : ""}">
+                <button class="ai-plus-button" id="ai-attach-toggle" type="button" aria-label="Foto oder Datei hinzufügen" aria-expanded="${state.ui.aiAttachMenuOpen ? "true" : "false"}">${C.icon("add")}</button>
+                <div class="ai-attach-menu">
+                  <label class="ai-attach-option">${C.icon("camera")} Foto<input id="ai-photo-input" type="file" accept="image/*" /></label>
+                  <label class="ai-attach-option">${C.icon("upload")} Datei<input id="ai-file-input" type="file" accept=".pdf,.txt,.md,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg,image/*,text/*,application/pdf" /></label>
+                </div>
+              </div>
+              <button class="ai-mic-button voice-input" type="button" title="Mündlich fragen" aria-label="Mündlich fragen" aria-pressed="false">${C.icon("mic")}</button>
+              <textarea id="chat-input" name="message" rows="1" placeholder="Ask anything"></textarea>
+              <button class="ai-send-button" type="submit" aria-label="Senden">${C.icon("send")}</button>
+            </div>
+          </form>
           <div class="ai-quick-actions">
             ${actions.map(([label, prompt]) => `<button class="ai-quick-action" data-prompt="${C.escapeHtml(prompt)}" type="button">${C.escapeHtml(label)}</button>`).join("")}
           </div>
-          <form id="chat-form" class="ai-full-input">
-            <textarea id="chat-input" name="message" placeholder="Frag Lynxly AI"></textarea>
-            <div class="ai-input-tools">
-              <label class="tool-button photo-library-button" title="Foto aus Mediathek auswählen" aria-label="Foto aus Mediathek auswählen">${C.icon("camera")}<input id="ai-photo-input" type="file" accept="image/*" /></label>
-              <button class="tool-button voice-input" type="button" title="Mündlich fragen" aria-label="Mündlich fragen" aria-pressed="false">${C.icon("mic")}</button>
-              <button class="primary-button" type="submit">${C.icon("send")} Senden</button>
-            </div>
-          </form>
         </section>
       </section>
     `;
@@ -1586,7 +2704,6 @@
     requestAnimationFrame(() => {
       const output = document.querySelector(".ai-output");
       if (output) output.scrollTop = output.scrollHeight;
-      document.querySelector(".ai-window")?.scrollIntoView({ block: "end", behavior: "auto" });
       document.querySelector("#chat-input")?.focus({ preventScroll: true });
     });
   };
@@ -1735,6 +2852,39 @@
     const rank = rows.findIndex((row) => row.id === "you") + 1;
     return { rank: rank || rows.length, total: rows.length, tier: tierById(state.leagueTier) };
   };
+  const classLeagueResult = (index) => {
+    if (index < 3) return { id: "podium", title: `${index + 1}. Platz`, text: "Podest · Level-up" };
+    if (index < 5) return { id: "level-up", title: "Top 5", text: "Level-up" };
+    return { id: "stay", title: "Dabei", text: "Bleibt in der Liga" };
+  };
+  const podiumTrophy = (place) => `
+    <svg class="podium-trophy trophy-${place}" viewBox="0 0 64 64" aria-hidden="true">
+      <path class="cup-side left" d="M19 18H9c0 12 5 19 15 21"/>
+      <path class="cup-side right" d="M45 18h10c0 12-5 19-15 21"/>
+      <path class="cup-main" d="M18 10h28v14c0 12-6 20-14 20S18 36 18 24Z"/>
+      <path class="cup-shine" d="M32 10v34"/>
+      <path class="cup-stem" d="M28 44h8v8h-8z"/>
+      <path class="cup-base" d="M22 52h20v7H22z"/>
+    </svg>
+  `;
+  const renderClassPodium = (rows) => {
+    const podium = rows.slice(0, 3);
+    return `
+      <section class="class-podium" aria-label="Podest der Woche">
+        ${podium.map((row, index) => {
+          const name = row.private ? "Privat" : row.displayName;
+          const place = index + 1;
+          return `
+            <article class="podium-place place-${place}">
+              ${podiumTrophy(place)}
+              <div class="podium-block"><span>${place}</span></div>
+              <div class="podium-name"><strong>${C.escapeHtml(name)}</strong><small>${Number(row.weeklyXp || 0)} XP</small></div>
+            </article>
+          `;
+        }).join("")}
+      </section>
+    `;
+  };
   const renderBadgeGrid = () => {
     const unlocked = new Set(state.badges.map((badge) => badge.id));
     return `
@@ -1750,6 +2900,7 @@
   };
   const renderProgressPersonal = () => {
     const progress = levelProgress();
+    const currentTier = tierForXp(state.xpTotal);
     const records = state.personalRecords;
     const mascotLine = Number(state.xpThisWeek || 0) > 0
       ? "Lynxly sagt: Du baust diese Woche echte Lernroutine auf. Bleib scharf."
@@ -1759,13 +2910,18 @@
         <article class="level-card">
           <div class="level-card-top">
             <div>
-              <span>Level ${progress.current.level}</span>
-              <h2>${C.escapeHtml(progress.current.title)}</h2>
-              <p>${progress.next ? `${progress.remaining} XP bis ${C.escapeHtml(progress.next.title)}` : "Max-Level für dieses MVP erreicht"}</p>
+              <span>Aktuelle Liga</span>
+              <h2>${C.escapeHtml(currentTier.name)}</h2>
+              <p>${progress.next ? `${progress.remaining} XP fehlen bis zum nächsten Ziel: ${C.escapeHtml(progress.next.title)}` : "Höchstes Ziel für dieses MVP erreicht"}</p>
             </div>
             ${C.mascot("mascot-small")}
           </div>
-          ${progressBar(Number(state.xpTotal || 0) - progress.current.min, progress.end - progress.current.min, `Level ${progress.current.level} Fortschritt`, "large")}
+          <div class="level-goal-row">
+            <span>${C.escapeHtml(progress.current.title)}</span>
+            <strong>${progress.next ? `${progress.remaining} XP bis ${C.escapeHtml(progress.next.title)}` : "Ziel erreicht"}</strong>
+            <span>${C.escapeHtml(progress.next?.title || currentTier.name)}</span>
+          </div>
+          ${progressBar(Number(state.xpTotal || 0) - progress.current.min, progress.end - progress.current.min, `Fortschritt bis ${progress.next ? progress.next.title : currentTier.name}`, "large")}
           <div class="xp-meta"><strong>${state.xpThisWeek} XP diese Woche</strong><span>${state.xpTotal} XP gesamt</span><span>Rang ${classRankInfo().rank} · ${C.escapeHtml(classRankInfo().tier.name)}</span></div>
         </article>
         <article class="mascot-card progress-mascot-card">${C.mascot("mascot-small")}<p>${C.escapeHtml(mascotLine)}</p></article>
@@ -1853,16 +3009,22 @@
           <button class="secondary-button" type="submit">Klassenliga speichern</button>
         </form>
         <article class="mascot-card progress-mascot-card">${C.mascot("mascot-small")}<p>${C.escapeHtml(mascotText)}</p></article>
+        <article class="class-podium-card">
+          <div class="panel-header"><div><span>Wochenfinale</span><h2>Podest und Level-up</h2></div><strong>Top 5 steigen auf</strong></div>
+          ${renderClassPodium(rows)}
+          <p>Am Ende der Woche kommen Platz 1, 2 und 3 aufs Podest. Die ersten fünf steigen eine Liga hoch.</p>
+        </article>
         <div class="leaderboard-mode-pill" aria-label="Klassenliga nach XP sortiert">XP Leaderboard</div>
         <section class="leaderboard-list class-league-list" aria-label="Wochenranking der Klassenliga">
           ${rows.map((row, index) => {
             const score = Number(row.weeklyXp || 0);
             const name = row.private ? "Privat" : row.displayName;
+            const result = classLeagueResult(index);
             return `
-              <article class="leaderboard-row class-rank-row ${row.id === "you" ? "you" : ""} ${row.private ? "private" : ""}" aria-label="Rang ${index + 1}: ${C.escapeHtml(name)}, ${row.private ? "privat" : `${score} ${classLeagueCategory.unit}`}">
+              <article class="leaderboard-row class-rank-row result-${result.id} ${row.id === "you" ? "you" : ""} ${row.private ? "private" : ""}" aria-label="${C.escapeHtml(result.title)}, Rang ${index + 1}: ${C.escapeHtml(name)}, ${row.private ? "privat" : `${score} ${classLeagueCategory.unit}`}">
                 <strong>${index + 1}</strong>
                 <span class="friend-avatar">${C.escapeHtml(row.initials || name.slice(0, 1))}</span>
-                <div><b>${C.escapeHtml(name)}</b><small>${row.id === "you" ? "Du" : C.escapeHtml(classLeagueCategory.note)}</small></div>
+                <div><b>${C.escapeHtml(name)}</b><small>${row.id === "you" ? `Du · ${result.text}` : C.escapeHtml(result.text)}</small></div>
                 <em>${row.private ? "Privat" : `${score} ${C.escapeHtml(classLeagueCategory.unit)}`}</em>
               </article>
             `;
@@ -1876,7 +3038,7 @@
           <p>${state.classLeague.bonusAwarded ? "Klassenbonus geschafft. Stark zusammen gelernt." : "Wenn alle Ziele erfüllt sind, bekommt deine lokale Demo-Klasse den Bonus."}</p>
         </section>
         <article class="privacy-note-card">${C.icon("lock")} <span>Klassenliga ist opt-in. Gezeigt werden nur sichere Lernwerte: XP, Karten, Fehler, Sessions und Verbesserungswert.</span></article>
-        <article class="league-reset-note"><strong>Wöchentlicher Neustart</strong><span>Top-Lernende können sanft aufsteigen. Unten heißt es nur: Bleib dran, nächste Woche startet frisch.</span></article>
+        <article class="league-reset-note"><strong>Wöchentlicher Neustart</strong><span>Platz 1 bis 3 stehen auf dem Podest. Die ersten fünf steigen eine Liga hoch. Alle anderen bleiben ruhig dabei und können nächste Woche neu angreifen.</span></article>
       </section>
     `;
   };
@@ -2096,7 +3258,7 @@
         const cards = sessionCards();
         const index = Math.min(Math.max(0, Number(state.ui.studySessionCardIndex || 0)), Math.max(0, cards.length - 1));
         const card = cards[index];
-        if (card) scheduleCardReview(card, button.dataset.rating);
+        if (card) scheduleCardReview(card, button.dataset.rating, { rewardCard: true, mistakeReward: false });
         state.ui.studySessionCardIndex = Math.min(index + 1, Math.max(0, cards.length - 1));
         save();
         render();
@@ -2170,12 +3332,18 @@
         combo?.querySelector(".subject-suggest-toggle")?.setAttribute("aria-expanded", "false");
       });
       document.querySelectorAll(".grade-folder").forEach((button) => button.addEventListener("click", () => {
+        const row = button.closest(".subject-folder-row");
+        if (row?.dataset.swiped === "true") {
+          delete row.dataset.swiped;
+          return;
+        }
         state.ui.selectedGradeSubject = button.dataset.id;
         state.ui.selectedPartialGroup = null;
         state.ui.showSubjectForm = false;
         state.ui.showGradeEntryForm = false;
         state.ui.showTargetGradeForm = false;
         state.ui.showPartialEntryForm = false;
+        state.ui.editingGradeId = "";
         save();
         render();
       }));
@@ -2192,6 +3360,7 @@
         state.ui.showGradeEntryForm = false;
         state.ui.showTargetGradeForm = false;
         state.ui.showPartialEntryForm = false;
+        state.ui.editingGradeId = "";
         save();
         render();
       });
@@ -2202,7 +3371,10 @@
         render();
       });
       document.querySelector("#toggle-grade-entry-form")?.addEventListener("click", () => {
-        state.ui.showGradeEntryForm = !state.ui.showGradeEntryForm;
+        const willOpen = !state.ui.showGradeEntryForm;
+        state.ui.showGradeEntryForm = willOpen;
+        state.ui.editingGradeId = "";
+        state.ui.showPartialWeightForm = false;
         save();
         render();
       });
@@ -2214,8 +3386,106 @@
       document.querySelector("#target-grade-form")?.addEventListener("submit", (event) => {
         event.preventDefault();
         const data = formData(event.currentTarget);
-        if (selectedSubject) selectedSubject.targetGrade = data.targetGrade || "";
+        if (selectedSubject) {
+          selectedSubject.targetGrade = data.targetGrade || "";
+          state.ui.targetGradeWeight = data.targetWeight || "1";
+          state.ui.targetGradeCategoryId = data.targetCategoryId || "";
+        }
         state.ui.showTargetGradeForm = false;
+        save();
+        render();
+      });
+      document.querySelectorAll(".grade-mode-option").forEach((button) => button.addEventListener("click", () => {
+        if (!selectedSubject) return;
+        selectedSubject.gradeMode = button.dataset.mode || "simple";
+        state.ui.whatIfResult = null;
+        state.ui.showGradeEntryForm = false;
+        state.ui.editingGradeId = "";
+        save();
+        render();
+      }));
+      document.querySelector(".category-normalize-toggle")?.addEventListener("change", (event) => {
+        if (!selectedSubject) return;
+        selectedSubject.normalizeCategories = event.currentTarget.checked;
+        save();
+        render();
+      });
+      document.querySelector("#category-add-form")?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (!selectedSubject) return;
+        const data = formData(event.currentTarget);
+        selectedSubject.gradeCategories.push({
+          id: uid("cat"),
+          name: String(data.name || "").trim() || "Kategorie",
+          percentage: Math.max(0, Number(data.percentage || 0))
+        });
+        save();
+        render();
+      });
+      document.querySelectorAll(".category-name-input").forEach((input) => input.addEventListener("change", () => {
+        if (!selectedSubject) return;
+        const category = gradeCategoryById(selectedSubject, input.dataset.id);
+        if (!category) return;
+        category.name = input.value.trim() || "Kategorie";
+        save();
+        render();
+      }));
+      document.querySelectorAll(".category-percent-input").forEach((input) => input.addEventListener("change", () => {
+        if (!selectedSubject) return;
+        const category = gradeCategoryById(selectedSubject, input.dataset.id);
+        if (!category) return;
+        category.percentage = Math.max(0, Number(input.value || 0));
+        save();
+        render();
+      }));
+      document.querySelectorAll(".delete-category").forEach((button) => button.addEventListener("click", () => {
+        if (!selectedSubject || selectedSubject.gradeCategories.length <= 1) return;
+        selectedSubject.gradeCategories = selectedSubject.gradeCategories.filter((category) => category.id !== button.dataset.id);
+        selectedSubject.grades.forEach((grade) => {
+          if (grade.categoryId === button.dataset.id) grade.categoryId = "";
+        });
+        save();
+        render();
+      }));
+      document.querySelectorAll(".weight-quick").forEach((button) => button.addEventListener("click", () => {
+        const input = document.querySelector(`#${button.dataset.target}`);
+        if (input) input.value = button.dataset.weight || "1";
+      }));
+      document.querySelector("#what-if-form")?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const data = formData(event.currentTarget);
+        const subject = gradeSubjectById(state.ui.selectedGradeSubject);
+        if (!subject || data.value === "") return;
+        const value = parseNumberInput(data.value);
+        if (!Number.isFinite(value)) return;
+        const weight = parseWeightInput(data.weight, 1);
+        const categoryId = subject.gradeMode === "category" ? (data.categoryId || subject.gradeCategories?.[0]?.id || "") : "";
+        state.ui.whatIfResult = {
+          subjectId: subject.id,
+          title: String(data.title || "").trim(),
+          value,
+          weight,
+          categoryId,
+          average: projectSubjectAverage(subject, value, { weight, categoryId })
+        };
+        save();
+        render();
+      });
+      document.querySelector(".save-what-if-grade")?.addEventListener("click", () => {
+        const subject = gradeSubjectById(state.ui.selectedGradeSubject);
+        const result = state.ui.whatIfResult;
+        if (!subject || !result || result.subjectId !== subject.id) return;
+        const examNumber = subject.grades.filter((grade) => grade.type !== "partial").length + 1;
+        subject.grades.push({
+          id: uid("grade"),
+          type: "exam",
+          title: result.title || `Prüfung ${examNumber}`,
+          date: todayIso(),
+          value: Number(result.value),
+          weight: parseWeightInput(result.weight, 1),
+          categoryId: result.categoryId || ""
+        });
+        state.ui.whatIfResult = null;
         save();
         render();
       });
@@ -2223,23 +3493,103 @@
         event.preventDefault();
         const data = formData(event.currentTarget);
         const subject = gradeSubjectById(state.ui.selectedGradeSubject);
-        if (subject && data.value !== "") {
+        if (!subject) return;
+        const existingGrade = data.gradeId ? gradeEntryById(subject, data.gradeId) : null;
+        const categoryId = subject.gradeMode === "category" ? (data.categoryId || subject.gradeCategories?.[0]?.id || "") : "";
+        const weight = parseWeightInput(data.weight, 1);
+        if (!existingGrade && data.isPartialFolder === "on") {
+          const folderNumber = subject.grades.filter((grade) => grade.type === "partial").length + 1;
+          const title = String(data.title || "").trim() || `Noten-Ordner ${folderNumber}`;
+          const nextFolder = {
+            id: uid("partial"),
+            type: "partial",
+            title,
+            date: data.date || todayIso(),
+            weight,
+            categoryId,
+            partialGrades: []
+          };
+          subject.grades.push(nextFolder);
+          state.ui.selectedPartialGroup = nextFolder.id;
+          state.ui.showPartialEntryForm = true;
+        } else if (data.value !== "") {
+          const value = parseNumberInput(data.value);
+          if (!Number.isFinite(value)) return;
           const examNumber = subject.grades.filter((grade) => grade.type !== "partial").length + 1;
-          const title = String(data.title || "").trim() || `Prüfung ${examNumber}`;
-          subject.grades.push({ id: uid("grade"), type: "exam", title, date: data.date || todayIso(), value: Number(data.value) });
+          const title = String(data.title || "").trim() || (existingGrade?.title || `Prüfung ${examNumber}`);
+          const nextGrade = {
+            id: existingGrade?.id || uid("grade"),
+            type: "exam",
+            title,
+            date: data.date || todayIso(),
+            value,
+            weight,
+            categoryId
+          };
+          if (existingGrade) Object.assign(existingGrade, nextGrade);
+          else subject.grades.push(nextGrade);
+        } else {
+          return;
         }
         state.ui.showGradeEntryForm = false;
+        state.ui.whatIfResult = null;
+        state.ui.editingGradeId = "";
         save();
         render();
       });
-      document.querySelectorAll(".open-partial-folder").forEach((button) => button.addEventListener("click", () => {
-        state.ui.selectedPartialGroup = button.dataset.id;
-        state.ui.showPartialEntryForm = false;
+      document.querySelectorAll(".edit-grade-entry").forEach((button) => button.addEventListener("click", () => {
+        const row = button.closest(".grade-swipe-row");
+        if (row?.dataset.swiped === "true") {
+          delete row.dataset.swiped;
+          return;
+        }
+        state.ui.editingGradeId = button.dataset.id || "";
+        state.ui.showGradeEntryForm = true;
+        state.ui.showTargetGradeForm = false;
+        state.ui.whatIfResult = null;
         save();
         render();
       }));
+      const openPartialFolder = (folderId, row) => {
+        if (row?.dataset.swiped === "true") {
+          delete row.dataset.swiped;
+          return;
+        }
+        if (!folderId) return;
+        state.ui.selectedPartialGroup = folderId;
+        state.ui.showPartialEntryForm = false;
+        state.ui.showGradeEntryForm = false;
+        state.ui.showTargetGradeForm = false;
+        state.ui.showPartialWeightForm = false;
+        save();
+        render();
+      };
+      document.querySelectorAll(".open-partial-folder").forEach((button) => button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openPartialFolder(button.dataset.id, button.closest(".grade-swipe-row"));
+      }));
+      document.querySelectorAll(".partial-folder-row").forEach((row) => row.addEventListener("click", (event) => {
+        if (event.target.closest(".delete-grade")) return;
+        openPartialFolder(row.dataset.partialId, row);
+      }));
       document.querySelector("#toggle-partial-entry-form")?.addEventListener("click", () => {
         state.ui.showPartialEntryForm = !state.ui.showPartialEntryForm;
+        state.ui.showPartialWeightForm = false;
+        save();
+        render();
+      });
+      document.querySelector(".partial-weight-button")?.addEventListener("click", () => {
+        state.ui.showPartialWeightForm = !state.ui.showPartialWeightForm;
+        state.ui.showPartialEntryForm = false;
+        save();
+        render();
+      });
+      document.querySelector("#partial-weight-form")?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const data = formData(event.currentTarget);
+        if (selectedPartial?.type === "partial") selectedPartial.weight = parseWeightInput(data.weight, 1);
+        state.ui.showPartialWeightForm = false;
         save();
         render();
       });
@@ -2247,28 +3597,16 @@
         event.preventDefault();
         const data = formData(event.currentTarget);
         if (selectedPartial?.type === "partial" && data.value !== "") {
+          const value = parseNumberInput(data.value);
+          if (!Number.isFinite(value)) return;
           const partNumber = selectedPartial.partialGrades.length + 1;
           const title = String(data.title || "").trim() || `Teilprüfung ${partNumber}`;
-          selectedPartial.partialGrades.push({ id: uid("part"), title, date: data.date || todayIso(), value: Number(data.value) });
+          selectedPartial.partialGrades.push({ id: uid("part"), title, date: data.date || todayIso(), value });
         }
         state.ui.showPartialEntryForm = false;
         save();
         render();
       });
-      document.querySelectorAll(".rename-grade").forEach((button) => button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const subject = gradeSubjectById(state.ui.selectedGradeSubject);
-        if (!subject) return;
-        const partialId = button.dataset.partial;
-        const grade = partialId ? gradeEntryById(subject, partialId)?.partialGrades.find((entry) => entry.id === button.dataset.grade) : gradeEntryById(subject, button.dataset.grade);
-        if (!grade) return;
-        const nextTitle = prompt("Neuer Name", grade.title);
-        if (nextTitle?.trim()) {
-          grade.title = nextTitle.trim();
-          save();
-          render();
-        }
-      }));
       document.querySelectorAll(".delete-grade").forEach((button) => button.addEventListener("click", (event) => {
         event.stopPropagation();
         const subject = gradeSubjectById(state.ui.selectedGradeSubject);
@@ -2281,28 +3619,57 @@
           subject.grades = subject.grades.filter((grade) => grade.id !== button.dataset.grade);
           if (state.ui.selectedPartialGroup === button.dataset.grade) state.ui.selectedPartialGroup = null;
         }
+        if (state.ui.editingGradeId === button.dataset.grade) state.ui.editingGradeId = "";
         save();
         render();
       }));
-      document.querySelectorAll(".grade-swipe-row").forEach((row) => {
+      document.querySelectorAll(".grade-swipe-row, .subject-folder-row").forEach((row) => {
         let startX = 0;
-        row.addEventListener("touchstart", (event) => {
-          startX = event.touches[0]?.clientX || 0;
-        }, { passive: true });
-        row.addEventListener("touchend", (event) => {
-          const endX = event.changedTouches[0]?.clientX || startX;
-          if (startX - endX > 34) row.classList.add("show-actions");
-          if (endX - startX > 34) row.classList.remove("show-actions");
-        }, { passive: true });
-      });
-      document.querySelector(".create-subject-task")?.addEventListener("click", (event) => {
-        const subject = event.currentTarget.dataset.subject || selectedSubject?.name || "Lernen";
-        state.studyTasks.unshift({ id: uid("task"), subject, title: `${subject} 15 Minuten üben`, date: todayIso(), done: false });
-        trackStudyAction("studyTaskAdded");
-        pushNotification("Lerntermin geplant", `${subject}: 15 Minuten üben`);
-        save();
-        location.hash = "#dashboard";
-        render();
+        let startY = 0;
+        let startOffset = 0;
+        let currentOffset = 0;
+        let dragging = false;
+        let moved = false;
+        const swipeWidth = 90;
+        const setSwipeOffset = (value) => {
+          currentOffset = Math.max(0, Math.min(swipeWidth, value));
+          row.style.setProperty("--swipe-offset", `${currentOffset}px`);
+          row.classList.toggle("swiping", dragging);
+        };
+        const finishSwipe = () => {
+          if (!dragging) return;
+          dragging = false;
+          row.classList.remove("swiping");
+          row.style.removeProperty("--swipe-offset");
+          const openedActions = currentOffset > swipeWidth * 0.28;
+          row.classList.toggle("show-actions", openedActions);
+          if (openedActions || (startOffset > 0 && moved)) {
+            row.dataset.swiped = "true";
+            window.setTimeout(() => delete row.dataset.swiped, 120);
+          }
+        };
+        row.addEventListener("pointerdown", (event) => {
+          if (event.button && event.button !== 0) return;
+          if (event.target.closest(".delete-grade, .delete-subject")) return;
+          startX = event.clientX || 0;
+          startY = event.clientY || 0;
+          startOffset = row.classList.contains("show-actions") ? swipeWidth : 0;
+          currentOffset = startOffset;
+          dragging = true;
+          moved = false;
+          row.setPointerCapture?.(event.pointerId);
+        });
+        row.addEventListener("pointermove", (event) => {
+          if (!dragging) return;
+          const deltaX = startX - (event.clientX || startX);
+          const deltaY = Math.abs(startY - (event.clientY || startY));
+          if (Math.abs(deltaX) < 5 && deltaY > 8) return;
+          if (Math.abs(deltaX) > 12) moved = true;
+          if (moved) event.preventDefault();
+          setSwipeOffset(startOffset + deltaX);
+        });
+        row.addEventListener("pointerup", finishSwipe);
+        row.addEventListener("pointercancel", finishSwipe);
       });
     }
 
@@ -2363,7 +3730,7 @@
           }
         }, 220);
       });
-      document.querySelectorAll(".quizlet-large-stack, .recent-deck-row").forEach((button) => button.addEventListener("click", () => {
+      document.querySelectorAll(".quizlet-large-stack, .recent-deck-row, .search-deck-row").forEach((button) => button.addEventListener("click", () => {
         if (button.dataset.stack === "mistakes") {
           location.hash = "#mistakes";
           render();
@@ -2372,13 +3739,36 @@
         state.ui.cardStudyMode = button.dataset.stack;
         state.ui.cardStudyOpen = true;
         state.ui.cardStudyIndex = 0;
-        state.ui.selectedCardSubject = button.dataset.subject || (button.dataset.stack === "personal" ? "" : state.ui.selectedCardSubject);
+        state.ui.selectedCardPackId = button.dataset.packId || "";
+        state.ui.selectedCardSubject = button.dataset.subject || (button.dataset.stack === "personal" ? "" : "");
+        state.cardStudySession = { ...defaultCardStudySession(), choosing: true };
         save();
         render();
       }));
-      document.querySelector(".close-study-view")?.addEventListener("click", () => {
+      document.querySelectorAll(".close-study-view").forEach((button) => button.addEventListener("click", () => {
         state.ui.cardStudyOpen = false;
         state.ui.cardStudyMode = "";
+        state.ui.cardStudyIndex = 0;
+        resetCardStudySession();
+        save();
+        render();
+      }));
+      document.querySelectorAll(".start-deck-session").forEach((button) => button.addEventListener("click", () => {
+        startDeckSession(button.dataset.mode || button.dataset.option || "cards");
+        save();
+        render();
+      }));
+      document.querySelector(".start-more-cards")?.addEventListener("click", (event) => {
+        state.cardStudySession = { ...defaultCardStudySession(), choosing: true };
+        startDeckSession(event.currentTarget.dataset.mode || "cards");
+        save();
+        render();
+      });
+      document.querySelector(".choose-other-deck")?.addEventListener("click", () => {
+        state.ui.cardStudyOpen = true;
+        state.cardStudySession = { ...defaultCardStudySession(), choosing: true };
+        state.activeModeSession = {};
+        state.learningMode = "";
         state.ui.cardStudyIndex = 0;
         save();
         render();
@@ -2398,8 +3788,94 @@
         const index = Math.min(Math.max(0, Number(state.ui.cardStudyIndex || 0)), Math.max(0, cards.length - 1));
         const card = cards[index];
         if (!card) return;
-        scheduleCardReview(card, button.dataset.rating);
-        state.ui.cardStudyIndex = Math.min(index + 1, Math.max(0, cards.length - 1));
+        if (state.cardStudySession?.active) {
+          rateDeckSessionCard(card, button.dataset.rating);
+        } else {
+          scheduleCardReview(card, button.dataset.rating, { rewardCard: true, mistakeReward: false });
+          state.ui.cardStudyIndex = Math.min(index + 1, Math.max(0, cards.length - 1));
+        }
+        save();
+        render();
+      }));
+      document.querySelector(".mode-answer-form")?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const data = formData(event.currentTarget);
+        if (state.cardStudySession?.mode === "test") {
+          answerTestQuestion(data.answer || "");
+        } else {
+          answerCurrentCard(data.answer || "");
+        }
+        save();
+        render();
+      });
+      document.querySelectorAll(".choice-option").forEach((button) => button.addEventListener("click", () => {
+        const answer = button.dataset.answer || button.textContent || "";
+        if (state.cardStudySession?.mode === "test") {
+          answerTestQuestion(answer);
+        } else {
+          answerChoiceCard(answer);
+        }
+        save();
+        render();
+      }));
+      document.querySelector(".mode-next-card")?.addEventListener("click", () => {
+        advanceModeSession();
+        save();
+        render();
+      });
+      document.querySelectorAll(".save-mode-mistake").forEach((button) => button.addEventListener("click", () => {
+        saveModeMistake(button.dataset.answerIndex);
+        save();
+        render();
+      }));
+      document.querySelectorAll(".mode-match-prompt").forEach((button) => button.addEventListener("click", () => {
+        const session = state.cardStudySession || {};
+        const promptId = button.dataset.id;
+        const answerId = session.selectedAnswerId || "";
+        if (answerId) {
+          const correct = promptId === answerId;
+          const matchedIds = correct ? [...new Set([...(session.matchedIds || []), promptId])] : [...(session.matchedIds || [])];
+          state.cardStudySession = {
+            ...session,
+            matchedIds,
+            selectedPromptId: "",
+            selectedAnswerId: "",
+            wrongAttempts: Number(session.wrongAttempts || 0) + (correct ? 0 : 1),
+            lastResult: { correct }
+          };
+          state.activeModeSession = { ...state.cardStudySession };
+          if (correct) setCardReviewOnly(activeStudyCards().find((card) => card.id === promptId), "good");
+          if (matchedIds.length >= Number(session.target || session.matchPairs?.length || 0)) completeDeckSession();
+        } else {
+          state.cardStudySession.selectedPromptId = promptId;
+          state.cardStudySession.lastResult = null;
+        }
+        save();
+        render();
+      }));
+      document.querySelectorAll(".mode-match-answer").forEach((button) => button.addEventListener("click", () => {
+        const session = state.cardStudySession || {};
+        const answerId = button.dataset.id;
+        const promptId = session.selectedPromptId || "";
+        if (!promptId) {
+          state.cardStudySession.selectedAnswerId = answerId;
+          save();
+          render();
+          return;
+        }
+        const correct = promptId === answerId;
+        const matchedIds = correct ? [...new Set([...(session.matchedIds || []), promptId])] : [...(session.matchedIds || [])];
+        state.cardStudySession = {
+          ...session,
+          matchedIds,
+          selectedPromptId: "",
+          selectedAnswerId: "",
+          wrongAttempts: Number(session.wrongAttempts || 0) + (correct ? 0 : 1),
+          lastResult: { correct }
+        };
+        state.activeModeSession = { ...state.cardStudySession };
+        if (correct) setCardReviewOnly(activeStudyCards().find((card) => card.id === promptId), "good");
+        if (matchedIds.length >= Number(session.target || session.matchPairs?.length || 0)) completeDeckSession();
         save();
         render();
       }));
@@ -2487,6 +3963,11 @@
     }
 
     if (route === "bot") {
+      document.querySelector("#ai-attach-toggle")?.addEventListener("click", () => {
+        state.ui.aiAttachMenuOpen = !state.ui.aiAttachMenuOpen;
+        save();
+        render();
+      });
       document.querySelector("#ai-photo-input")?.addEventListener("change", async (event) => {
         const file = event.currentTarget.files?.[0];
         if (!file) return;
@@ -2497,8 +3978,9 @@
           return;
         }
         try {
-          pendingChatAttachment = { name: file.name, dataUrl: await prepareChatImage(file) };
+          pendingChatAttachment = { name: file.name, kind: "photo", dataUrl: await prepareChatImage(file) };
           state.ui.chatAttachmentName = file.name;
+          state.ui.aiAttachMenuOpen = false;
           save();
           render();
         } catch (error) {
@@ -2509,7 +3991,22 @@
           render();
         }
       });
+      document.querySelector("#ai-file-input")?.addEventListener("change", async (event) => {
+        const file = event.currentTarget.files?.[0];
+        if (!file) return;
+        const snippet = await readFileSnippet(file);
+        pendingChatAttachment = { name: file.name, kind: "file", dataUrl: "", text: snippet };
+        state.ui.chatAttachmentName = file.name;
+        state.ui.aiAttachMenuOpen = false;
+        save();
+        render();
+      });
       document.querySelector(".voice-input")?.addEventListener("click", startVoiceInput);
+      document.querySelector("#chat-input")?.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" || event.shiftKey) return;
+        event.preventDefault();
+        event.currentTarget.closest("form")?.requestSubmit();
+      });
       document.querySelectorAll(".ai-quick-action").forEach((button) => button.addEventListener("click", () => {
         const input = document.querySelector("#chat-input");
         input.value = `${button.dataset.prompt || ""}${input.value}`.trim();
@@ -2542,18 +4039,20 @@
         event.preventDefault();
         const message = formData(event.currentTarget).message.trim();
         const attachment = pendingChatAttachment?.name === state.ui.chatAttachmentName ? state.ui.chatAttachmentName : "";
-        const imageData = pendingChatAttachment?.name === attachment ? pendingChatAttachment.dataUrl : "";
+        const imageData = pendingChatAttachment?.name === attachment && pendingChatAttachment.kind === "photo" ? pendingChatAttachment.dataUrl : "";
+        const fileText = pendingChatAttachment?.name === attachment && pendingChatAttachment.kind === "file" && pendingChatAttachment.text ? `\n\nDateiauszug aus ${attachment}:\n${pendingChatAttachment.text}` : "";
         if (!message && !attachment) return;
         if (state.settings.aiQuestionsUsed >= state.settings.aiLimit) {
           state.chat.push({ id: uid("msg"), role: "bot", text: `${planLabel(currentPlan())}-Limit erreicht: ${state.settings.aiLimit} KI-Fragen in diesem Monat sind genutzt.` });
         } else {
-          const userText = message || (attachment ? "Bitte hilf mir mit diesem Foto." : "");
-          state.chat.push({ id: uid("msg"), role: "user", text: `${userText}${attachment ? ` [Foto: ${attachment}]` : ""}` });
+          const userText = message || (attachment ? `Bitte hilf mir mit ${pendingChatAttachment?.kind === "file" ? "dieser Datei" : "diesem Foto"}.` : "");
+          const attachmentLabel = attachment ? ` [${pendingChatAttachment?.kind === "file" ? "Datei" : "Foto"}: ${attachment}]` : "";
+          state.chat.push({ id: uid("msg"), role: "user", text: `${userText}${attachmentLabel}` });
           state.chat.push({ id: uid("msg"), role: "bot", text: "Ich denke kurz nach ..." });
           state.ui.chatAttachmentName = "";
           save();
           render();
-          const answer = await askLynxlyAI(userText, attachment, imageData);
+          const answer = await askLynxlyAI(`${userText}${fileText}`, attachment, imageData);
           const placeholder = [...state.chat].reverse().find((msg) => msg.role === "bot" && msg.text === "Ich denke kurz nach ...");
           if (placeholder) placeholder.text = answer;
           state.settings.aiQuestionsUsed += 1;
