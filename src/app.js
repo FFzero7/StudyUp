@@ -2623,29 +2623,63 @@
     }
   };
 
-  const askLynxlyAI = async (message, attachment, imageData) => {
+const askLynxlyAI = async (message, attachment, imageData) => {
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        message: message || "",
+        attachmentName: attachment || "",
+        imageData: imageData || ""
+      })
+    });
+
+    const raw = await response.text();
+
+    let data;
+
     try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: message || attachment || "Hilf mir beim Lernen", attachmentName: attachment || "", imageData: imageData || "" })
-      });
-      const raw = await response.text();
-      let data = {};
-      try {
-        data = raw ? JSON.parse(raw) : {};
-      } catch (error) {
-        throw new Error(raw || "KI-Antwort war kein JSON");
-      }
-      if (!response.ok) throw new Error(data.error || "KI-Anfrage fehlgeschlagen");
-      state.ui.aiOfflineMode = Boolean(data.offline);
-      return data.answer || botAnswer(message || attachment, attachment ? "Foto" : "Text");
-    } catch (error) {
-      console.warn("Lynxly AI nutzt lokale Antwort.", error);
-      state.ui.aiOfflineMode = true;
-      return `${botAnswer(message || attachment, attachment ? "Foto" : "Text")}\n\nHinweis: Die echte KI-Route ist lokal gerade nicht verbunden, deshalb nutze ich eine sichere Offline-Antwort.`;
+      data = raw ? JSON.parse(raw) : {};
+    } catch {
+      throw new Error(
+        `Die API hat kein gültiges JSON zurückgegeben. ` +
+        `Status: ${response.status}. Antwort: ${raw || "leer"}`
+      );
     }
-  };
+
+    if (!response.ok) {
+      throw new Error(
+        data.error ||
+        data.details ||
+        `KI-Anfrage fehlgeschlagen (${response.status})`
+      );
+    }
+
+    if (data.offline) {
+      throw new Error(
+        data.warning ||
+        "Die API läuft im Offline-Modus. OPENAI_API_KEY ist nicht verfügbar."
+      );
+    }
+
+    if (!data.answer || typeof data.answer !== "string") {
+      throw new Error("Die API hat keine KI-Antwort zurückgegeben.");
+    }
+
+    state.ui.aiOfflineMode = false;
+
+    return data.answer;
+  } catch (error) {
+    console.error("Lynxly AI API-Fehler:", error);
+
+    state.ui.aiOfflineMode = true;
+
+    return `API-Fehler: ${error.message}`;
+  }
+};
 
   const lastUserMessageBefore = (messageId) => {
     const index = state.chat.findIndex((message) => message.id === messageId);
