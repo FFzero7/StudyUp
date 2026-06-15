@@ -1,34 +1,41 @@
 ```js
 const DEFAULT_MODEL = "gpt-4.1-mini";
-const REQUEST_TIMEOUT_MS = 25_000;
+const REQUEST_TIMEOUT_MS = 30_000;
 
 /**
- * Local response used only when OPENAI_API_KEY is unavailable.
+ * Wird nur verwendet, wenn kein API-Key vorhanden ist.
  */
 const fallbackAnswer = (message = "", hasImage = false) => {
   const raw = String(message || "").trim();
   const lower = raw.toLowerCase();
 
   if (hasImage) {
-    return (
-      "Ich habe dein Foto erhalten. Ohne verbundenen KI-Bildmodus kann ich " +
-      "es lokal nicht sicher auslesen. Beschreibe kurz, was auf dem Foto " +
-      "steht, dann helfe ich dir Schritt für Schritt."
-    );
+    return [
+      "Antwort:",
+      "Das Foto wurde empfangen, kann im Offline-Modus aber nicht ausgewertet werden.",
+      "",
+      "Lösungsweg:",
+      "1. Prüfe, ob OPENAI_API_KEY in Vercel eingerichtet ist.",
+      "2. Führe danach ein neues Deployment durch.",
+      "3. Sende das Foto anschließend noch einmal."
+    ].join("\n");
   }
 
   if (!raw) {
-    return "Schreib mir deine Aufgabe, dann helfe ich dir Schritt für Schritt.";
+    return "Schreib mir deine Aufgabe, dann gebe ich dir die Antwort und den Lösungsweg.";
   }
 
   if (
     ["translate", "uebersetze", "übersetze", "was heisst", "was heißt"]
       .some((word) => lower.includes(word))
   ) {
-    return (
-      "Bei einer Übersetzung gebe ich dir die Bedeutung direkt und danach " +
-      "ein kurzes Beispiel. Schreib am besten das genaue Wort oder den ganzen Satz."
-    );
+    return [
+      "Antwort:",
+      "Bitte gib das genaue Wort oder den vollständigen Satz an.",
+      "",
+      "Lösungsweg:",
+      "Danach gebe ich dir zuerst die Übersetzung und anschließend eine kurze Erklärung mit Beispiel."
+    ].join("\n");
   }
 
   if (
@@ -37,32 +44,41 @@ const fallbackAnswer = (message = "", hasImage = false) => {
     const bracket = raw.match(/\(([^()]+)\)/);
 
     if (bracket) {
-      return (
-        `Ich würde zuerst die Klammer anschauen: ${bracket[1]}. ` +
-        "Rechne diesen Zwischenschritt aus und setze das Ergebnis danach " +
-        "wieder in die Aufgabe ein."
-      );
+      return [
+        "Antwort:",
+        `Berechne zuerst den Ausdruck in der Klammer: ${bracket[1]}.`,
+        "",
+        "Lösungsweg:",
+        "1. Zuerst die Klammer berechnen.",
+        "2. Das Ergebnis wieder in die ursprüngliche Aufgabe einsetzen.",
+        "3. Danach Punktrechnung vor Strichrechnung beachten."
+      ].join("\n");
     }
 
-    return (
-      "Bei Mathe starten wir mit der Reihenfolge: Klammern, dann " +
-      "Punktrechnung, dann Strichrechnung. Markiere zuerst den Teil, " +
-      "der nach dieser Regel dran ist."
-    );
+    return [
+      "Antwort:",
+      "Berechne die Aufgabe mit der richtigen Rechenreihenfolge.",
+      "",
+      "Lösungsweg:",
+      "1. Klammern berechnen.",
+      "2. Multiplikation und Division berechnen.",
+      "3. Addition und Subtraktion berechnen."
+    ].join("\n");
   }
 
-  return (
-    "Lass uns das als Lerncoach zerlegen: " +
-    "1. Was ist gegeben? " +
-    "2. Was wird gesucht? " +
-    "3. Welcher erste Schritt passt? " +
-    `Zu deiner Frage "${raw}" würde ich zuerst die wichtigsten Begriffe ` +
-    "klären und dann ein kleines Beispiel machen."
-  );
+  return [
+    "Antwort:",
+    `Deine Frage lautet: "${raw}". Im Offline-Modus kann ich keine vollständige KI-Antwort erstellen.`,
+    "",
+    "Lösungsweg:",
+    "1. Prüfe den OpenAI API-Key.",
+    "2. Führe ein neues Vercel-Deployment aus.",
+    "3. Stelle die Frage danach erneut."
+  ].join("\n");
 };
 
 /**
- * Safely read a request body in Vercel/serverless environments.
+ * Liest den Request-Body sicher aus.
  */
 const parseRequestBody = (req) => {
   if (!req.body) {
@@ -77,7 +93,7 @@ const parseRequestBody = (req) => {
     try {
       return JSON.parse(req.body);
     } catch {
-      throw new Error("Der Anfrage-Body enthält kein gültiges JSON.");
+      throw new Error("Der Request enthält kein gültiges JSON.");
     }
   }
 
@@ -85,7 +101,7 @@ const parseRequestBody = (req) => {
 };
 
 /**
- * Guess an image MIME type when the frontend sends only raw Base64.
+ * Erkennt den Bildtyp anhand des Dateinamens.
  */
 const inferImageMimeType = (attachmentName = "") => {
   const name = String(attachmentName).toLowerCase();
@@ -98,10 +114,10 @@ const inferImageMimeType = (attachmentName = "") => {
 };
 
 /**
- * Accept:
- * - a complete data URL
- * - a normal HTTPS image URL
- * - raw Base64 image data
+ * Unterstützt:
+ * - vollständige Base64 Data-URLs
+ * - normale HTTPS-Bild-URLs
+ * - rohe Base64-Bilddaten
  */
 const normalizeImageData = (imageData, attachmentName = "") => {
   const value = String(imageData || "").trim();
@@ -133,19 +149,21 @@ const normalizeImageData = (imageData, attachmentName = "") => {
   }
 
   throw new Error(
-    "Das Bildformat ist ungültig. Sende eine Bild-URL oder Base64-Daten."
+    "Das Bildformat ist ungültig. Sende eine Bild-URL oder Base64-Bilddaten."
   );
 };
 
 /**
- * Build the Responses API input.
+ * Erstellt den Input für die Responses API.
  */
 const buildAiInput = (message, imageData, attachmentName) => {
   const text =
     String(message || "").trim() ||
-    (attachmentName
-      ? `Hilf mir mit diesem Foto: ${attachmentName}`
-      : "Analysiere dieses Foto und hilf mir beim Lernen.");
+    (
+      attachmentName
+        ? `Löse die Aufgabe auf diesem Foto: ${attachmentName}`
+        : "Löse die Aufgabe auf diesem Foto."
+    );
 
   if (!imageData) {
     return text;
@@ -161,7 +179,8 @@ const buildAiInput = (message, imageData, attachmentName) => {
         },
         {
           type: "input_image",
-          image_url: imageData
+          image_url: imageData,
+          detail: "high"
         }
       ]
     }
@@ -169,13 +188,7 @@ const buildAiInput = (message, imageData, attachmentName) => {
 };
 
 /**
- * Extract text from a raw Responses API JSON response.
- *
- * With raw fetch(), generated text normally appears inside:
- * data.output[].content[].text
- *
- * Some SDK responses may additionally provide data.output_text,
- * so this function supports both formats.
+ * Liest den generierten Text aus der rohen API-Antwort.
  */
 const extractOutputText = (data) => {
   if (
@@ -185,38 +198,41 @@ const extractOutputText = (data) => {
     return data.output_text.trim();
   }
 
-  const chunks = [];
+  const textParts = [];
 
-  for (const item of Array.isArray(data?.output) ? data.output : []) {
-    if (item?.type !== "message") {
+  for (const outputItem of Array.isArray(data?.output) ? data.output : []) {
+    if (outputItem?.type !== "message") {
       continue;
     }
 
-    for (const part of Array.isArray(item.content) ? item.content : []) {
+    for (
+      const contentItem of Array.isArray(outputItem.content)
+        ? outputItem.content
+        : []
+    ) {
       if (
-        part?.type === "output_text" &&
-        typeof part.text === "string" &&
-        part.text.trim()
+        contentItem?.type === "output_text" &&
+        typeof contentItem.text === "string" &&
+        contentItem.text.trim()
       ) {
-        chunks.push(part.text.trim());
+        textParts.push(contentItem.text.trim());
       }
 
       if (
-        part?.type === "refusal" &&
-        typeof part.refusal === "string" &&
-        part.refusal.trim()
+        contentItem?.type === "refusal" &&
+        typeof contentItem.refusal === "string" &&
+        contentItem.refusal.trim()
       ) {
-        chunks.push(part.refusal.trim());
+        textParts.push(contentItem.refusal.trim());
       }
     }
   }
 
-  return chunks.join("\n\n").trim();
+  return textParts.join("\n\n").trim();
 };
 
 /**
- * Read an OpenAI response without crashing if an upstream error
- * returns non-JSON content.
+ * Verhindert einen Fehler, falls OpenAI keine JSON-Antwort zurückgibt.
  */
 const readResponseData = async (response) => {
   const rawText = await response.text();
@@ -291,36 +307,39 @@ module.exports = async (req, res) => {
     return;
   }
 
-  /**
-   * This should only happen when the environment variable is not
-   * available to the deployed function.
-   */
   if (!process.env.OPENAI_API_KEY) {
     res.status(200).json({
-      answer: fallbackAnswer(message || attachmentName, hasImage),
+      answer: fallbackAnswer(
+        message || attachmentName,
+        hasImage
+      ),
       offline: true,
-      warning: "OPENAI_API_KEY ist in dieser Umgebung nicht verfügbar."
+      warning:
+        "OPENAI_API_KEY ist in dieser Vercel-Umgebung nicht verfügbar."
     });
 
     return;
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(
-    () => controller.abort(),
-    REQUEST_TIMEOUT_MS
-  );
+
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, REQUEST_TIMEOUT_MS);
 
   try {
     const response = await fetch(
       "https://api.openai.com/v1/responses",
       {
         method: "POST",
+
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
         },
+
         signal: controller.signal,
+
         body: JSON.stringify({
           model:
             process.env.OPENAI_MODEL ||
@@ -328,19 +347,83 @@ module.exports = async (req, res) => {
 
           store: false,
 
-          max_output_tokens: 900,
+          max_output_tokens: 1200,
 
-          instructions:
-            "Du bist Lynxly AI, ein freundlicher und vertrauenswürdiger " +
-            "Lerncoach für Schüler. Antworte in derselben Sprache wie der " +
-            "Nutzer, standardmäßig auf Deutsch. Beantworte die konkrete " +
-            "Frage direkt. Erkläre Aufgaben verständlich und Schritt für " +
-            "Schritt. Stelle nur dann eine Rückfrage, wenn wichtige " +
-            "Informationen fehlen. Gib bei Mathematik nicht nur eine " +
-            "Endlösung, sondern erkläre den Lösungsweg. Wenn ein Foto " +
-            "vorhanden ist, lies den sichtbaren Inhalt sorgfältig aus und " +
-            "hilf beim Verstehen der Aufgabe. Erfinde keinen Bildinhalt, " +
-            "wenn etwas nicht lesbar ist.",
+          instructions: `
+Du bist Lynxly AI, ein freundlicher Lernassistent für Schüler.
+
+Deine wichtigste Aufgabe:
+Gib bei einer konkreten Aufgabe zuerst die endgültige Antwort und danach
+einen klaren Lösungsweg, der zeigt, wie du zu dieser Antwort gekommen bist.
+
+Verwende bei Aufgaben immer dieses Format:
+
+Antwort:
+[Hier steht zuerst die endgültige Antwort.]
+
+Lösungsweg:
+1. [Erster Schritt]
+2. [Zweiter Schritt]
+3. [Weitere Schritte, falls nötig]
+
+Regeln:
+
+- Gib nicht nur Hinweise, sondern löse die Aufgabe vollständig.
+- Gib die endgültige Antwort zuerst deutlich an.
+- Erkläre danach verständlich, wie die Antwort berechnet oder hergeleitet wurde.
+- Stelle keine Rückfrage, wenn die Aufgabe mit den vorhandenen Informationen lösbar ist.
+- Stelle nur dann eine kurze Rückfrage, wenn wirklich wichtige Angaben fehlen.
+- Antworte in derselben Sprache wie der Nutzer.
+- Wenn keine Sprache klar erkennbar ist, antworte auf Deutsch.
+- Halte die Erklärung klar und für Schüler verständlich.
+- Verwende keine unnötig komplizierten Fachbegriffe.
+
+Bei Mathematik:
+
+- Schreibe zuerst das Endergebnis.
+- Zeige danach jeden wichtigen Rechenschritt.
+- Beachte Klammern, Vorzeichen und Rechenreihenfolge.
+- Führe am Ende wenn sinnvoll eine kurze Probe durch.
+- Erfinde keine fehlenden Zahlen oder Informationen.
+
+Beispiel:
+
+Antwort:
+x = 4
+
+Lösungsweg:
+1. Ausgangsgleichung: 2x + 3 = 11
+2. Auf beiden Seiten 3 abziehen: 2x = 8
+3. Beide Seiten durch 2 teilen: x = 4
+4. Probe: 2 · 4 + 3 = 11
+
+Bei Übersetzungen:
+
+Antwort:
+[Genaue Übersetzung]
+
+Erklärung:
+[Kurze Erklärung der Bedeutung und ein kurzes Beispiel.]
+
+Bei Sachfragen:
+
+Antwort:
+[Direkte Antwort]
+
+Erklärung:
+[Kurze, verständliche Begründung.]
+
+Bei Fotos:
+
+- Lies zuerst die sichtbare Aufgabe sorgfältig.
+- Gib dann die Lösung an.
+- Erkläre anschließend den Lösungsweg.
+- Wenn ein wichtiger Teil des Fotos unlesbar ist, sage genau, welcher Teil fehlt.
+- Erfinde keinen Text und keine Zahlen, die auf dem Foto nicht erkennbar sind.
+
+Bei einer einfachen Begrüßung oder Unterhaltung musst du nicht künstlich
+„Antwort“ und „Lösungsweg“ schreiben. Antworte dort natürlich.
+          `.trim(),
 
           input: buildAiInput(
             message,
@@ -355,21 +438,21 @@ module.exports = async (req, res) => {
     const requestId = response.headers.get("x-request-id");
 
     if (!response.ok) {
-      const apiMessage =
+      const apiError =
         data?.error?.message ||
         data?.rawText ||
-        "Die OpenAI-Anfrage ist fehlgeschlagen.";
+        "Die KI-Anfrage ist fehlgeschlagen.";
 
-      console.error("OpenAI API error", {
+      console.error("OpenAI API error:", {
         status: response.status,
         requestId,
-        message: apiMessage
+        message: apiError
       });
 
       res
         .status(response.status >= 500 ? 502 : response.status)
         .json({
-          error: apiMessage,
+          error: apiError,
           offline: false,
           requestId: requestId || undefined
         });
@@ -380,7 +463,7 @@ module.exports = async (req, res) => {
     const answer = extractOutputText(data);
 
     if (!answer) {
-      console.error("OpenAI returned no readable text", {
+      console.error("OpenAI returned no readable text:", {
         requestId,
         status: data?.status,
         incompleteDetails: data?.incomplete_details
@@ -388,7 +471,7 @@ module.exports = async (req, res) => {
 
       res.status(502).json({
         error:
-          "Die KI-Anfrage war erfolgreich, enthielt aber keine lesbare Textantwort.",
+          "Die KI-Anfrage war erfolgreich, enthielt aber keine lesbare Antwort.",
         offline: false,
         requestId: requestId || undefined
       });
@@ -403,7 +486,7 @@ module.exports = async (req, res) => {
   } catch (error) {
     const timedOut = error?.name === "AbortError";
 
-    console.error("OpenAI request failed", {
+    console.error("OpenAI request failed:", {
       name: error?.name,
       message: error?.message
     });
