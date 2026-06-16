@@ -1,4 +1,3 @@
-```js
 const DEFAULT_MODEL = "gpt-4.1-mini";
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -502,4 +501,3 @@ Bei einer einfachen Begrüßung oder Unterhaltung musst du nicht künstlich
     clearTimeout(timeoutId);
   }
 };
-```
