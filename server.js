@@ -1,6 +1,7 @@
-﻿const http = require("http");
+const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const { aiInstructions, buildAiInput, fallbackAnswer } = require("./ai-chat-core");
 
 const root = __dirname;
 const types = {
@@ -26,44 +27,9 @@ const readBody = (req) => new Promise((resolve, reject) => {
   req.on("error", reject);
 });
 
-const fallbackAnswer = (message = "", hasImage = false) => {
-  const raw = String(message).trim();
-  const lower = raw.toLowerCase();
-  if (hasImage) {
-    return "Ich habe dein Foto erhalten. Ohne verbundenen KI-Bildmodus kann ich es lokal nicht sicher auslesen. Beschreibe kurz, was auf dem Foto steht, dann helfe ich dir Schritt für Schritt.";
-  }
-  if (!raw) return "Schreib mir deine Aufgabe, dann helfe ich dir Schritt für Schritt.";
-
-  if (["translate", "uebersetze", "übersetze", "was heisst", "was heißt"].some((word) => lower.includes(word))) {
-    return "Bei einer Übersetzung gebe ich dir die Bedeutung direkt und danach ein kurzes Beispiel. Schreib am besten das genaue Wort oder den ganzen Satz.";
-  }
-
-  if (/[0-9]\s*[\+\-\*x:\/]\s*[0-9]|\([^)]*[\+\-\*x:\/][^)]*\)/.test(lower)) {
-    const bracket = raw.match(/\(([^()]+)\)/);
-    if (bracket) {
-      return `Ich würde zuerst die Klammer anschauen: ${bracket[1]}. Rechne diesen Zwischenschritt aus und setze das Ergebnis danach wieder in die Aufgabe ein.`;
-    }
-    return "Bei Mathe starten wir mit der Reihenfolge: Klammern, dann Punktrechnung, dann Strichrechnung. Markiere zuerst den Teil, der nach dieser Regel dran ist.";
-  }
-
-  return `Lass uns das als Lerncoach zerlegen: 1. Was ist gegeben? 2. Was wird gesucht? 3. Welcher erste Schritt passt? Zu deiner Frage "${raw}" würde ich zuerst die wichtigsten Begriffe klären und dann ein kleines Beispiel machen.`;
-};
-
 const sendJson = (res, status, data) => {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(data));
-};
-
-const buildAiInput = (message, imageData, attachmentName) => {
-  const text = message || (attachmentName ? `Hilf mir mit diesem Foto: ${attachmentName}` : "Hilf mir beim Lernen.");
-  if (!imageData) return text;
-  return [{
-    role: "user",
-    content: [
-      { type: "input_text", text },
-      { type: "input_image", image_url: imageData }
-    ]
-  }];
 };
 
 const callOpenAI = async (message, imageData, attachmentName) => {
@@ -75,7 +41,7 @@ const callOpenAI = async (message, imageData, attachmentName) => {
     },
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
-      instructions: "Du bist Lynxly AI, ein vertrauenswürdiger Lerncoach für Schüler. Antworte auf Deutsch, erkläre Schritt für Schritt, stelle Rückfragen und gib nicht nur Endlösungen ohne Erklärung.",
+      instructions: aiInstructions,
       input: buildAiInput(message, imageData, attachmentName)
     })
   });
@@ -141,7 +107,3 @@ const server = http.createServer((req, res) => {
 server.listen(4173, "127.0.0.1", () => {
   console.log("Lynxly running at http://127.0.0.1:4173");
 });
-
-
-
-
