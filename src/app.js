@@ -2623,67 +2623,343 @@
     }
   };
 
-const askLynxlyAI = async (message, attachment, imageData) => {
-  try {
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        message: message || "",
-        attachmentName: attachment || "",
-        imageData: imageData || ""
-      })
-    });
-
-    const raw = await response.text();
-
-    let data;
-
+  const askLynxlyAI = async (message, attachment, imageData) => {
     try {
-      data = raw ? JSON.parse(raw) : {};
-    } catch {
-      throw new Error(
-        `Die API hat kein gültiges JSON zurückgegeben. ` +
-        `Status: ${response.status}. Antwort: ${raw || "leer"}`
-      );
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: message || attachment || "Hilf mir beim Lernen", attachmentName: attachment || "", imageData: imageData || "" })
+      });
+      const raw = await response.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch (error) {
+        throw new Error(raw || "KI-Antwort war kein JSON");
+      }
+      if (!response.ok) throw new Error(data.error || "KI-Anfrage fehlgeschlagen");
+      state.ui.aiOfflineMode = Boolean(data.offline);
+      return data.answer || botAnswer(message || attachment, attachment ? "Foto" : "Text");
+    } catch (error) {
+      console.warn("Lynxly AI nutzt lokale Antwort.", error);
+      state.ui.aiOfflineMode = true;
+      return `${botAnswer(message || attachment, attachment ? "Foto" : "Text")}\n\nHinweis: Die echte KI-Route ist lokal gerade nicht verbunden, deshalb nutze ich eine sichere Offline-Antwort.`;
     }
-
-    if (!response.ok) {
-      throw new Error(
-        data.error ||
-        data.details ||
-        `KI-Anfrage fehlgeschlagen (${response.status})`
-      );
-    }
-
-    if (data.offline) {
-      throw new Error(
-        data.warning ||
-        "Die API läuft im Offline-Modus. OPENAI_API_KEY ist nicht verfügbar."
-      );
-    }
-
-    if (!data.answer || typeof data.answer !== "string") {
-      throw new Error("Die API hat keine KI-Antwort zurückgegeben.");
-    }
-
-    state.ui.aiOfflineMode = false;
-
-    return data.answer;
-  } catch (error) {
-    console.error("Lynxly AI API-Fehler:", error);
-
-    state.ui.aiOfflineMode = true;
-
-    return `API-Fehler: ${error.message}`;
-  }
-};
+  };
 
   const lastUserMessageBefore = (messageId) => {
     const index = state.chat.findIndex((message) => message.id === messageId);
     return [...state.chat.slice(0, index)].reverse().find((message) => message.role === "user")?.text || "KI-Frage";
+  };
+
+  const aiSectionTypes = {
+    antwort: "answer",
+    answer: "answer",
+    "final answer": "answer",
+    lösungsweg: "steps",
+    loesungsweg: "steps",
+    lösung: "steps",
+    loesung: "steps",
+    solution: "steps",
+    erklärung: "explanation",
+    erklaerung: "explanation",
+    explanation: "explanation",
+    ergebnis: "result",
+    result: "result",
+    zusammenfassung: "summary",
+    summary: "summary",
+    probe: "check",
+    check: "check",
+    beispiel: "example",
+    example: "example",
+    fehler: "error",
+    error: "error"
+  };
+  const normalizeAiSectionTitle = (title = "") => String(title)
+    .toLowerCase()
+    .replace(/[:：]/g, "")
+    .trim();
+  const aiSectionClass = (title = "") => aiSectionTypes[normalizeAiSectionTitle(title)] || "default";
+  const isAiThinkingText = (text = "") => /ich denke kurz nach/i.test(String(text || ""));
+
+  const renderSimpleMathFallback = (value = "") => C.escapeHtml(String(value || "").trim())
+    .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '<span class="ai-frac"><span class="ai-frac-top">$1</span><span class="ai-frac-bottom">$2</span></span>')
+    .replace(/\\cdot/g, '<span class="ai-math-symbol">×</span>')
+    .replace(/\\div/g, '<span class="ai-math-symbol">÷</span>')
+    .replace(/\n/g, '<br>');
+
+  const renderMath = (value = "", display = false) => {
+    const source = String(value || "").trim();
+    const escaped = C.escapeHtml(source);
+    if (window.katex?.renderToString) {
+      try {
+        const math = window.katex.renderToString(source, {
+          displayMode: display,
+          throwOnError: false,
+          strict: "ignore",
+          trust: false
+        });
+        return display
+          ? `<div class="ai-math-block" role="img" aria-label="${escaped}">${math}</div>`
+          : `<span class="ai-math-inline" role="img" aria-label="${escaped}">${math}</span>`;
+      } catch (error) {
+        // Fallback below keeps the original formula readable if KaTeX cannot parse it.
+      }
+    }
+    const fallbackMath = renderSimpleMathFallback(source);
+    return display
+      ? `<div class="ai-math-block ai-math-fallback">${fallbackMath}</div>`
+      : `<span class="ai-math-inline ai-math-fallback">${fallbackMath}</span>`;
+  };
+
+  const renderInlineMarkdown = (value = "") => {
+    const tokens = [];
+    const token = (html) => {
+      const id = `§§LYNXLYCODE${tokens.length}§§`;
+      tokens.push([id, html]);
+      return id;
+    };
+    let text = String(value ?? "").replace(/`([^`\n]+)`/g, (_, code) => token(`<code>${C.escapeHtml(code)}</code>`));
+    text = text
+      .replace(/\\\(([\s\S]+?)\\\)/g, (_, math) => token(renderMath(math, false)))
+      .replace(/\$([^$\n]+)\$/g, (_, math) => token(renderMath(math, false)));
+    let html = C.escapeHtml(text);
+    html = html
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/__([^_]+)__/g, "<strong>$1</strong>")
+      .replace(/(^|[^\*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+      .replace(/(^|[^_])_([^_\n]+)_/g, "$1<em>$2</em>");
+    tokens.forEach(([id, htmlValue]) => {
+      html = html.replaceAll(id, htmlValue);
+    });
+    return html;
+  };
+
+  const renderMarkdownTable = (lines) => {
+    const rows = lines
+      .filter((line, index) => index !== 1)
+      .map((line) => line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim()));
+    const head = rows.shift() || [];
+    return `
+      <div class="ai-table-wrap">
+        <table class="ai-table">
+          <thead><tr>${head.map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`).join("")}</tr></thead>
+          <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${renderInlineMarkdown(cell)}</td>`).join("")}</tr>`).join("")}</tbody>
+        </table>
+      </div>
+    `;
+  };
+
+  const renderMarkdownDocument = (markdown = "") => {
+    const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+    const blocks = [];
+    let paragraph = [];
+    let list = null;
+    let index = 0;
+
+    const flushParagraph = () => {
+      if (!paragraph.length) return;
+      const text = paragraph.join("\n").trim();
+      const sectionMatch = text.match(/^\*\*(Antwort|Lösungsweg|Erklärung|Ergebnis|Zusammenfassung|Probe|Beispiel|Fehler):?\*\*\s*(.*)$/i);
+      if (sectionMatch) {
+        blocks.push({ type: "heading", level: 2, text: sectionMatch[1] });
+        if (sectionMatch[2]) blocks.push({ type: "paragraph", text: sectionMatch[2] });
+      } else {
+        blocks.push({ type: "paragraph", text });
+      }
+      paragraph = [];
+    };
+    const flushList = () => {
+      if (!list) return;
+      blocks.push(list);
+      list = null;
+    };
+    const isTableSeparator = (line) => /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+    const isTableLine = (line) => line.includes("|") && line.split("|").length >= 3;
+
+    while (index < lines.length) {
+      const line = lines[index];
+      const trimmed = line.trim();
+
+      if (!trimmed) {
+        flushParagraph();
+        flushList();
+        index += 1;
+        continue;
+      }
+
+      if (trimmed.startsWith("```")) {
+        flushParagraph();
+        flushList();
+        index += 1;
+        const codeLines = [];
+        while (index < lines.length && !lines[index].trim().startsWith("```")) {
+          codeLines.push(lines[index]);
+          index += 1;
+        }
+        if (index < lines.length) index += 1;
+        blocks.push({ type: "code", text: codeLines.join("\n") });
+        continue;
+      }
+
+      if (isTableLine(trimmed) && isTableSeparator(lines[index + 1] || "")) {
+        flushParagraph();
+        flushList();
+        const tableLines = [trimmed, lines[index + 1]];
+        index += 2;
+        while (index < lines.length && isTableLine(lines[index].trim())) {
+          tableLines.push(lines[index].trim());
+          index += 1;
+        }
+        blocks.push({ type: "table", lines: tableLines });
+        continue;
+      }
+
+      if (trimmed.startsWith("$$") || trimmed.startsWith("\\[")) {
+        flushParagraph();
+        flushList();
+        const open = trimmed.startsWith("$$") ? "$$" : "\\[";
+        const close = open === "$$" ? "$$" : "\\]";
+        let first = trimmed.slice(open.length).trim();
+        const mathLines = [];
+        if (first.endsWith(close) && first.length > close.length) {
+          mathLines.push(first.slice(0, -close.length).trim());
+          index += 1;
+        } else {
+          if (first) mathLines.push(first);
+          index += 1;
+          while (index < lines.length && !lines[index].trim().endsWith(close)) {
+            mathLines.push(lines[index]);
+            index += 1;
+          }
+          if (index < lines.length) {
+            const closingLine = lines[index].trim();
+            const content = closingLine.slice(0, -close.length).trim();
+            if (content) mathLines.push(content);
+            index += 1;
+          }
+        }
+        blocks.push({ type: "math", text: mathLines.join("\n") });
+        continue;
+      }
+
+      const heading = trimmed.match(/^(#{1,3})\s+(.+)$/);
+      if (heading) {
+        flushParagraph();
+        flushList();
+        blocks.push({ type: "heading", level: heading[1].length, text: heading[2].replace(/#+$/, "").trim() });
+        index += 1;
+        continue;
+      }
+
+      if (/^(-{3,}|\*{3,})$/.test(trimmed)) {
+        flushParagraph();
+        flushList();
+        blocks.push({ type: "hr" });
+        index += 1;
+        continue;
+      }
+
+      const numbered = trimmed.match(/^(\d+)[.)]\s+(.+)$/);
+      const bullet = trimmed.match(/^[-*]\s+(.+)$/);
+      if (numbered || bullet) {
+        flushParagraph();
+        const ordered = Boolean(numbered);
+        if (!list || list.ordered !== ordered) {
+          flushList();
+          list = { type: "list", ordered, items: [] };
+        }
+        list.items.push(numbered ? numbered[2] : bullet[1]);
+        index += 1;
+        continue;
+      }
+
+      flushList();
+      paragraph.push(line);
+      index += 1;
+    }
+    flushParagraph();
+    flushList();
+
+    let html = "";
+    let openSection = false;
+    const closeSection = () => {
+      if (openSection) html += "</section>";
+      openSection = false;
+    };
+
+    blocks.forEach((block) => {
+      if (block.type === "heading") {
+        closeSection();
+        const title = block.text.replace(/^\*\*|\*\*$/g, "");
+        const sectionType = block.level >= 3 ? "step" : aiSectionClass(title);
+        const headingLevel = block.level === 1 ? 2 : Math.min(3, block.level);
+        html += `<section class="ai-section ai-section-${sectionType}">`;
+        openSection = true;
+        html += `<h${headingLevel} class="ai-section-title ai-heading-level-${block.level}">${renderInlineMarkdown(title)}</h${headingLevel}>`;
+        return;
+      }
+      if (!openSection) {
+        html += `<section class="ai-section ai-section-default">`;
+        openSection = true;
+      }
+      if (block.type === "paragraph") {
+        const className = /\d+\s*(stunden?|minuten?|tage?)|^[\s*`]*\d+/.test(block.text.toLowerCase()) ? " ai-final-answer" : "";
+        html += `<p class="${className.trim()}">${renderInlineMarkdown(block.text).replace(/\n/g, "<br>")}</p>`;
+      } else if (block.type === "list") {
+        const tag = block.ordered ? "ol" : "ul";
+        const className = block.ordered ? "ai-step-list" : "ai-bullet-list";
+        html += `<${tag} class="${className}">${block.items.map((item) => `<li class="${block.ordered ? "ai-step" : ""}">${renderInlineMarkdown(item)}</li>`).join("")}</${tag}>`;
+      } else if (block.type === "code") {
+        html += `<pre class="ai-code-block"><code>${C.escapeHtml(block.text)}</code></pre>`;
+      } else if (block.type === "math") {
+        html += renderMath(block.text, true);
+      } else if (block.type === "table") {
+        html += renderMarkdownTable(block.lines);
+      } else if (block.type === "hr") {
+        html += `<hr class="ai-divider" />`;
+      }
+    });
+    closeSection();
+    return html || `<section class="ai-section ai-section-default"><p>${renderInlineMarkdown(markdown)}</p></section>`;
+  };
+
+  const renderChatMessage = (msg) => {
+    if (msg.role === "user") {
+      return `
+        <article class="chat-message-user">
+          <p>${C.escapeHtml(msg.text)}</p>
+        </article>
+      `;
+    }
+
+    if (isAiThinkingText(msg.text)) {
+      return `
+        <article class="chat-message-ai ai-thinking" aria-live="polite">
+          <div class="ai-response-header">
+            <span class="ai-avatar">${C.mascot("mascot-small")}</span>
+            <div><strong>Lynxly AI</strong><small>Lynxly denkt <span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span></small></div>
+          </div>
+        </article>
+      `;
+    }
+
+    return `
+      <article class="chat-message-ai" aria-live="polite">
+        <div class="ai-response">
+          <div class="ai-response-header">
+            <span class="ai-avatar">${C.mascot("mascot-small")}</span>
+            <div><strong>Lynxly AI</strong><small>Antwort</small></div>
+          </div>
+          <div class="ai-message-content">${renderMarkdownDocument(msg.text)}</div>
+          <div class="ai-actions">
+            <button class="save-ai-flashcards" data-id="${msg.id}" type="button" aria-label="KI-Antwort als Karten speichern">${C.icon("cards")} Als Karten</button>
+            <button class="save-ai-mistake" data-id="${msg.id}" type="button" aria-label="KI-Antwort als Fehler speichern">${C.icon("target")} Als Fehler</button>
+            <button class="save-ai-task" data-id="${msg.id}" type="button" aria-label="KI-Antwort als Aufgabe speichern">${C.icon("calendar")} Als Aufgabe</button>
+          </div>
+        </div>
+      </article>
+    `;
   };
 
   const renderBot = () => {
@@ -2702,8 +2978,8 @@ const askLynxlyAI = async (message, attachment, imageData) => {
         <h1>Lynxly AI</h1>
         <section class="ai-window">
           ${hasChat ? `
-            <div class="ai-output">
-              ${messages.map((msg) => `<article class="message ${msg.role === "user" ? "user" : "bot"}"><p>${C.escapeHtml(msg.text)}</p>${msg.role === "bot" ? `<div class="message-actions"><button class="save-ai-flashcards" data-id="${msg.id}" type="button">Als Karten</button><button class="save-ai-mistake" data-id="${msg.id}" type="button">Als Fehler</button><button class="save-ai-task" data-id="${msg.id}" type="button">Als Aufgabe</button></div>` : ""}</article>`).join("")}
+            <div class="ai-output" aria-live="polite" aria-label="Chatverlauf mit Lynxly AI">
+              ${messages.map(renderChatMessage).join("")}
             </div>
           ` : `
             <div class="ai-start-screen">
