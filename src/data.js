@@ -66,17 +66,27 @@
       active: false,
       completed: false,
       mode: "",
+      testStarted: false,
+      testSetup: { write: true, choice: true, mixed: true, direction: "front" },
       currentAnswer: "",
       selectedChoice: "",
       selectedPromptId: "",
       selectedAnswerId: "",
+      selectedMatchTileId: "",
       awaitingNext: false,
       lastResult: null,
       answers: [],
       testQuestions: [],
       matchPairs: [],
       promptOrder: [],
-      answerOrder: []
+      answerOrder: [],
+      matchTileOrder: [],
+      matchedIds: [],
+      lastWrongTileIds: [],
+      matchStartedAt: "",
+      matchCompletedAt: "",
+      matchPenaltySeconds: 0,
+      matchTimed: false
     },
     weeklyDeckChallenge: {
       weekKey: "",
@@ -138,7 +148,7 @@
       className: "Klasse 2B",
       classCode: "LYNX-2B",
       weekKey: "",
-      tier: "forest",
+      tier: "forest-lynx",
       bonusAwarded: false,
       demoLabel: "Demo-Klassenliga · lokal gespeichert",
       goals: {
@@ -147,11 +157,11 @@
         studySessions: 40
       },
       classmates: [
-        { id: "mia", displayName: "Mia", initials: "M", weeklyXp: 620, cardsReviewed: 76, mistakesFixed: 18, studySessions: 7, improved: 24, tier: "forest" },
-        { id: "leo", displayName: "Leo", initials: "L", weeklyXp: 540, cardsReviewed: 68, mistakesFixed: 14, studySessions: 6, improved: 20, tier: "forest" },
-        { id: "nora", displayName: "Nora", initials: "N", weeklyXp: 430, cardsReviewed: 45, mistakesFixed: 9, studySessions: 4, improved: 16, tier: "forest" },
-        { id: "sam", displayName: "Sam", initials: "S", weeklyXp: 390, cardsReviewed: 38, mistakesFixed: 7, studySessions: 3, improved: 14, tier: "forest" },
-        { id: "elif", displayName: "Elif", initials: "E", weeklyXp: 340, cardsReviewed: 31, mistakesFixed: 5, studySessions: 3, improved: 12, tier: "forest" }
+        { id: "mia", displayName: "Mia", initials: "M", weeklyXp: 620, cardsReviewed: 76, mistakesFixed: 18, studySessions: 7, improved: 24, tier: "forest-lynx" },
+        { id: "leo", displayName: "Leo", initials: "L", weeklyXp: 540, cardsReviewed: 68, mistakesFixed: 14, studySessions: 6, improved: 20, tier: "forest-lynx" },
+        { id: "nora", displayName: "Nora", initials: "N", weeklyXp: 430, cardsReviewed: 45, mistakesFixed: 9, studySessions: 4, improved: 16, tier: "forest-lynx" },
+        { id: "sam", displayName: "Sam", initials: "S", weeklyXp: 390, cardsReviewed: 38, mistakesFixed: 7, studySessions: 3, improved: 14, tier: "forest-lynx" },
+        { id: "elif", displayName: "Elif", initials: "E", weeklyXp: 340, cardsReviewed: 31, mistakesFixed: 5, studySessions: 3, improved: 12, tier: "forest-lynx" }
       ]
     },
     classLeaguePrivacy: {
@@ -169,7 +179,7 @@
       studySessions: 0,
       improved: 0
     },
-    leagueTier: "forest",
+    leagueTier: "forest-lynx",
     classCode: "LYNX-2B",
     streak: {
       current: 0,

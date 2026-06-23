@@ -16,6 +16,7 @@
   const C = window.StudyUpComponents;
   let state = window.StudyUpStorage.load();
   let cardSearchTimer = null;
+  let matchTimer = null;
   let pendingChatAttachment = null;
   let voiceRecognition = null;
 
@@ -46,19 +47,23 @@
   ];
   const learningModeOptions = [
     { id: "cards", title: "Karten", text: "Drehe Karten um und bewerte mit Again, Hard, Good oder Easy.", duration: "4-7 Min", xp: "Mittel", difficulty: "Leicht", target: 10 },
-    { id: "write", title: "Schreiben", text: "Tippe die Antwort selbst ein. Nur richtig oder falsch.", duration: "5-8 Min", xp: "Hoch", difficulty: "Mittel", target: 8 },
-    { id: "choice", title: "Choice", text: "Wähle aus vier Antworten. Schnell, klar und gut zum Warmwerden.", duration: "3-6 Min", xp: "Mittel", difficulty: "Leicht", target: 8 },
+    { id: "learn", title: "Lernen", text: "Erst Choice-Fragen zum Warmwerden, danach Schreibfragen zum Festigen.", duration: "6-9 Min", xp: "Hoch", difficulty: "Mittel", target: 8 },
     { id: "test", title: "Test", text: "Gemischte Prüfungsrunde mit Schreiben und Choice.", duration: "8-12 Min", xp: "Sehr hoch", difficulty: "Hoch", target: 10 },
     { id: "match", title: "Zuordnen", text: "Verbinde Begriffe mit passenden Lösungen.", duration: "4-6 Min", xp: "Mittel", difficulty: "Mittel", target: 8 }
   ];
   const comboRewards = { 3: 5, 5: 10, 10: 20 };
   const leaderboardCategory = { label: "XP", field: "weeklyXp", unit: "XP", note: "diese Woche gelernt" };
   const leagueTiers = [
-    { id: "snow", name: "Curious Lynx Liga", min: 0 },
-    { id: "forest", name: "Focus Lynx Liga", min: 250 },
-    { id: "alpine", name: "Sharp Lynx Liga", min: 650 },
-    { id: "shadow", name: "Study Hunter Liga", min: 1250 },
-    { id: "northern", name: "Exam Master Liga", min: 2100 }
+    { id: "snow-paw", name: "Snow Paw Liga", min: 0, image: "src/assets/leagues/snow-paw.png" },
+    { id: "forest-lynx", name: "Forest Lynx Liga", min: 180, image: "src/assets/leagues/forest-lynx.png" },
+    { id: "river-lynx", name: "River Lynx Liga", min: 420, image: "src/assets/leagues/river-lynx.png" },
+    { id: "mountain-lynx", name: "Mountain Lynx Liga", min: 760, image: "src/assets/leagues/mountain-lynx.png" },
+    { id: "alpine-lynx", name: "Alpine Lynx Liga", min: 1180, image: "src/assets/leagues/alpine-lynx.png" },
+    { id: "shadow-lynx", name: "Shadow Lynx Liga", min: 1680, image: "src/assets/leagues/shadow-lynx.png" },
+    { id: "crystal-lynx", name: "Crystal Lynx Liga", min: 2260, image: "src/assets/leagues/crystal-lynx.png" },
+    { id: "aurora-lynx", name: "Aurora Lynx Liga", min: 2920, image: "src/assets/leagues/aurora-lynx.png" },
+    { id: "northern-light", name: "Northern Light Liga", min: 3660, image: "src/assets/leagues/northern-light.png" },
+    { id: "apex-lynx", name: "Apex Lynx Liga", min: 4500, image: "src/assets/leagues/apex-lynx.png" }
   ];
   const classLeagueCategory = { label: "XP", field: "weeklyXp", unit: "XP", note: "diese Woche gelernt" };
 
@@ -205,20 +210,59 @@
     active: false,
     completed: false,
     mode: "",
+    testStarted: false,
+    testSetup: { write: true, choice: true, mixed: true, direction: "front" },
     currentAnswer: "",
     selectedChoice: "",
     selectedPromptId: "",
     selectedAnswerId: "",
+    selectedMatchTileId: "",
     awaitingNext: false,
     lastResult: null,
     answers: [],
     testQuestions: [],
     matchPairs: [],
     promptOrder: [],
-    answerOrder: []
+    answerOrder: [],
+    matchTileOrder: [],
+    matchedIds: [],
+    lastWrongTileIds: [],
+    matchStartedAt: "",
+    matchCompletedAt: "",
+    matchPenaltySeconds: 0,
+    matchTimed: false
   });
   const tierForXp = (xp) => [...leagueTiers].reverse().find((tier) => Number(xp || 0) >= tier.min) || leagueTiers[0];
-  const tierById = (id) => leagueTiers.find((tier) => tier.id === id) || leagueTiers[1];
+  const tierAliases = { snow: "snow-paw", forest: "forest-lynx", alpine: "alpine-lynx", shadow: "shadow-lynx", northern: "northern-light" };
+  const tierById = (id) => {
+    const normalized = tierAliases[id] || id;
+    return leagueTiers.find((tier) => tier.id === normalized) || leagueTiers[1];
+  };
+  const leagueSymbolMarkup = {
+    snow: '<path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9"/><circle cx="12" cy="12" r="2.2"/>',
+    forest: '<path d="M5 13c5.5-8 12-8 14-8-1 8-5 14-14 14 0-2 0-4 0-6Z"/><path d="M7 16c4-1 7-4 10-8"/>',
+    alpine: '<path d="M3 19 9 7l3 5 3-7 6 14H3Z"/><path d="m9 7 2 4-3-1M15 5l2.3 5-3.3-1"/>',
+    shadow: '<path d="M16.5 3.5c-4.7 1-8 4.7-8 8.5s3.3 7.5 8 8.5C10.1 20.5 5 16.8 5 12s5.1-8.5 11.5-8.5Z"/><path d="m17 8 1 2.2 2.4.2-1.8 1.5.6 2.3-2.2-1.2-2.1 1.2.5-2.3-1.8-1.5 2.4-.2Z"/>',
+    northern: '<path d="M4 17c2-7 4.4-10 8-10s6 3 8 10"/><path d="M7 17c1.2-4 3-6 5-6s3.8 2 5 6"/><path d="M12 2l1.1 2.9 3.1.2-2.4 1.9.8 3-2.6-1.7L9.4 10l.8-3-2.4-1.9 3.1-.2Z"/>'
+  };
+  const leagueSymbol = (tierId, withName = false) => {
+    const tier = tierById(typeof tierId === "string" ? tierId : tierId?.id);
+    if (tier.image) {
+      return `
+        <span class="league-symbol league-image-symbol league-${C.escapeHtml(tier.id)}" title="${C.escapeHtml(tier.name)}" aria-label="${C.escapeHtml(tier.name)}">
+          <img src="${C.escapeHtml(tier.image)}" alt="" loading="lazy" />
+          ${withName ? `<small>${C.escapeHtml(tier.name)}</small>` : ""}
+        </span>
+      `;
+    }
+    const icon = leagueSymbolMarkup[tier.id] || leagueSymbolMarkup.forest;
+    return `
+      <span class="league-symbol league-${C.escapeHtml(tier.id)}" title="${C.escapeHtml(tier.name)}" aria-label="${C.escapeHtml(tier.name)}">
+        <svg viewBox="0 0 24 24" role="img" aria-hidden="true">${icon}</svg>
+        ${withName ? `<small>${C.escapeHtml(tier.name)}</small>` : ""}
+      </span>
+    `;
+  };
   const makeDailyQuests = () => questTemplates.map((quest) => ({
     ...quest,
     progress: 0,
@@ -322,7 +366,7 @@
     if (!state.classLeaguePrivacy.displayName) state.classLeaguePrivacy.displayName = state.user?.name || "Du";
     state.classLeagueDemo = state.classLeagueDemo !== false;
     state.recentXpEvents = Array.isArray(state.recentXpEvents) ? state.recentXpEvents.slice(0, 12) : [];
-    state.leagueTier = state.leagueTier || state.classLeague.tier || "forest";
+    state.leagueTier = tierById(state.leagueTier || state.classLeague.tier || "forest-lynx").id;
     state.classCode = state.classCode || state.classLeague.classCode || "LYNX-2B";
     state.classLeague.tier = state.leagueTier;
     state.classLeague.classCode = state.classCode;
@@ -355,6 +399,13 @@
     state.cardStudySession.ratings = Array.isArray(state.cardStudySession.ratings) ? state.cardStudySession.ratings : [];
     state.cardStudySession.comboAwards = Array.isArray(state.cardStudySession.comboAwards) ? state.cardStudySession.comboAwards : [];
     state.cardStudySession.dueCardIds = Array.isArray(state.cardStudySession.dueCardIds) ? state.cardStudySession.dueCardIds : [];
+    state.cardStudySession.testSetup = { ...defaultCardStudySession().testSetup, ...(state.cardStudySession.testSetup || {}) };
+    state.cardStudySession.testQuestions = Array.isArray(state.cardStudySession.testQuestions) ? state.cardStudySession.testQuestions : [];
+    state.cardStudySession.matchPairs = Array.isArray(state.cardStudySession.matchPairs) ? state.cardStudySession.matchPairs : [];
+    state.cardStudySession.matchTileOrder = Array.isArray(state.cardStudySession.matchTileOrder) ? state.cardStudySession.matchTileOrder : [];
+    state.cardStudySession.matchedIds = Array.isArray(state.cardStudySession.matchedIds) ? state.cardStudySession.matchedIds : [];
+    state.cardStudySession.lastWrongTileIds = Array.isArray(state.cardStudySession.lastWrongTileIds) ? state.cardStudySession.lastWrongTileIds : [];
+    state.cardStudySession.matchPenaltySeconds = Number(state.cardStudySession.matchPenaltySeconds || 0);
     state.ui.progressTab = state.ui.progressTab || "me";
     state.ui.leaderboardTab = "xp";
     state.ui.classLeagueTab = "xp";
@@ -413,7 +464,7 @@
     state.weeklyLeagueStats.weeklyXp = Number(state.weeklyLeagueStats.weeklyXp || 0) + xp;
     state.weeklyLeagueStats.improved = Math.max(Number(state.weeklyLeagueStats.improved || 0), Math.round(Number(state.xpThisWeek || 0) / 25));
     state.level = levelForXp(state.xpTotal).level;
-    state.leagueTier = tierForXp(state.xpThisWeek).id;
+    state.leagueTier = tierById(state.leagueTier || state.classLeague?.tier || "forest-lynx").id;
     state.classLeague.tier = state.leagueTier;
     recordStudyDay();
     updatePersonalRecords();
@@ -443,7 +494,7 @@
     mistakesFixed: Number(state.weeklyLeagueStats.mistakesFixed || 0),
     studySessions: Number(state.weeklyLeagueStats.studySessions || 0),
     improved: Number(state.weeklyLeagueStats.improved || 0),
-    tier: state.leagueTier || "forest"
+    tier: tierById(state.leagueTier || "forest-lynx").id
   });
   const classTeamTotals = () => {
     const own = classUserStats();
@@ -684,6 +735,16 @@
   };
   const subjectDisplayAverage = (subject) => subjectAverage(subject);
   const subjectHasGrades = (subject) => Number.isFinite(subjectDisplayAverage(subject));
+  const sortedSubjectsByAverage = () => [...state.subjects].sort((a, b) => {
+    const avgA = subjectDisplayAverage(a);
+    const avgB = subjectDisplayAverage(b);
+    const hasA = Number.isFinite(avgA);
+    const hasB = Number.isFinite(avgB);
+    if (hasA && hasB) return (avgB - avgA) || String(a.name || "").localeCompare(String(b.name || ""), "de");
+    if (hasA) return -1;
+    if (hasB) return 1;
+    return String(a.name || "").localeCompare(String(b.name || ""), "de");
+  });
 
   const weightedAverage = () => {
     const weighted = state.subjects
@@ -759,7 +820,7 @@
     state.classLeague = defaultClassLeague();
     state.classLeaguePrivacy = { joined: false, visible: false, displayName: state.user.name || "Du" };
     state.classLeagueDemo = true;
-    state.leagueTier = "snow";
+    state.leagueTier = "snow-paw";
     state.classCode = "LYNX-2B";
     state.recentXpEvents = [];
     state.ui.showMistakeForm = false;
@@ -1081,10 +1142,10 @@
   `;
   const renderProgressTeaser = () => {
     const progress = levelProgress();
-    const currentTier = tierForXp(state.xpTotal);
+    const currentTier = tierById(state.leagueTier);
     return `
       <a class="progress-teaser-card focus-card" href="#progress">
-        <div class="mascot-card-head">${C.mascot("mascot-small")}<div><span>Fortschritt</span><h2>${C.escapeHtml(currentTier.name)}</h2></div></div>
+        <div class="mascot-card-head">${C.mascot("mascot-small")}<div><span>Fortschritt</span><h2>${leagueSymbol(currentTier.id)}</h2></div></div>
         <p>${progress.next ? `${progress.remaining} XP bis ${C.escapeHtml(progress.next.title)}` : "Höchstes Ziel erreicht"} · ${state.xpThisWeek} XP diese Woche</p>
         ${progressBar(Number(state.xpTotal || 0) - progress.current.min, progress.end - progress.current.min, `Fortschritt bis ${progress.next ? progress.next.title : currentTier.name}`)}
         <em>Fortschritt öffnen</em>
@@ -1292,13 +1353,24 @@
     `;
   };
 
-  const renderSubjectFolders = () => state.subjects.map((subject) => {
+  const renderSubjectFolders = () => sortedSubjectsByAverage().map((subject) => {
     const avg = subjectAverage(subject);
     const points = plusPointsFor(subject);
+    const roundedGrade = Number.isFinite(avg) ? Math.round(avg * 2) / 2 : null;
+    const gradeClass = !Number.isFinite(roundedGrade)
+      ? "grade-neutral"
+      : roundedGrade < 3.5
+        ? "grade-low"
+        : roundedGrade < 4
+          ? "grade-warning"
+          : roundedGrade < 4.5
+            ? "grade-ok"
+            : roundedGrade < 5
+              ? "grade-light-good"
+              : "grade-high";
     return `
-      <article class="subject-folder-row">
+      <article class="subject-folder-row ${gradeClass}" data-subject-id="${subject.id}">
         <button class="grade-folder" data-id="${subject.id}" type="button">
-          <span class="folder-icon">${C.icon("book")}</span>
           <div><strong>${C.escapeHtml(subject.name)}</strong><small>${subject.grades.length} Prüfung${subject.grades.length === 1 ? "" : "en"}</small></div>
           <em>${avg === null ? "–" : avg.toFixed(2)}</em>
           <b class="${points >= 0 ? "positive" : "negative"}">${formatPlusPoints(points)}</b>
@@ -1355,7 +1427,6 @@
   };
 
   const renderGradeModeFields = (subject, values = {}) => {
-    const selectedCategoryId = values.categoryId || subject.gradeCategories?.[0]?.id || "";
     const selectedWeight = parseWeightInput(values.weight, 1);
     const weightField = `
       <label>Gewichtung <small>x oder %</small>
@@ -1369,17 +1440,6 @@
         <small>Für Teilnoten wie mündliche Noten oder kurze Abfragen.</small>
       </label>
     ` : "";
-    if (subject.gradeMode === "category") {
-      return `
-        <label>Kategorie
-          <select name="categoryId" required>
-            ${(subject.gradeCategories || []).map((category) => `<option value="${category.id}" ${category.id === selectedCategoryId ? "selected" : ""}>${C.escapeHtml(category.name)} · ${Number(category.percentage || 0)}%</option>`).join("")}
-          </select>
-        </label>
-        ${weightField}
-        ${folderToggle}
-      `;
-    }
     return `${weightField}${folderToggle}`;
   };
 
@@ -1510,7 +1570,6 @@
           <button class="primary-button" type="submit">${editingGrade ? "Prüfung aktualisieren" : "Prüfung speichern"}</button>
         </form>
         ${state.ui.showGradeEntryForm ? "" : `
-        ${renderCategoryBreakdown(subject)}
         <section class="grade-entry-list">
           ${subject.grades.map(renderGradeEntryRow).join("") || `<div class="empty-grade-list">Drücke +, um die erste Prüfung einzutragen.</div>`}
         </section>`}
@@ -1785,16 +1844,18 @@
     const due = cards.filter(cardIsDue);
     const early = cards.filter((card) => !cardIsDue(card));
     const ordered = [...due, ...early];
-    const limit = modeId === "match" ? Math.min(10, Math.max(2, Math.min(option.target, ordered.length || option.target))) : option.target;
+    const limit = modeId === "match" ? Math.min(8, Math.max(2, Math.min(option.target, ordered.length || option.target))) : option.target;
     return ordered.slice(0, Math.min(limit, ordered.length));
   };
   const choiceOptionsForCard = (card) => {
-    const pool = allCardsForReview()
-      .filter((item) => item.id !== card.id)
-      .sort((a, b) => (a.subject === card.subject ? -1 : 1) - (b.subject === card.subject ? -1 : 1))
+    const sessionCards = activeStudyCards().filter((item) => item.id !== card.id);
+    const sameDeck = sessionCards
+      .filter((item) => item.packId && card.packId ? item.packId === card.packId : (item.title || item.subject) === (card.title || card.subject));
+    const sameSubject = sessionCards.filter((item) => item.subject === card.subject);
+    const pool = [...sameDeck, ...sameSubject]
       .map((item) => item.answer)
       .filter(Boolean);
-    const fallback = ["Noch nicht sicher", "Andere Lösung", "Passt nicht", "Wiederholen"];
+    const fallback = plausibleDistractors(card.answer, card.subject);
     const options = [card.answer, ...pool, ...fallback]
       .map((item) => String(item || "").trim())
       .filter(Boolean)
@@ -1803,11 +1864,99 @@
     while (options.length < 4) options.push(`Option ${options.length + 1}`);
     return shuffleList(options);
   };
-  const buildTestQuestions = (cards) => cards.map((card, index) => ({
-    cardId: card.id,
-    type: index % 2 === 0 ? "write" : "choice",
-    options: index % 2 === 0 ? [] : choiceOptionsForCard(card)
-  }));
+  const plausibleDistractors = (answer, subject = "") => {
+    const clean = String(answer || "").trim();
+    const numeric = clean.match(/-?\d+(?:[.,]\d+)?/);
+    if (numeric) {
+      const value = Number(numeric[0].replace(",", "."));
+      if (Number.isFinite(value)) return [value + 1, Math.max(0, value - 1), value * 2].map((item) => String(item).replace(".", ","));
+    }
+    const science = /bio|chem|phys|mathe|geograph|geschichte|natur|technik|wissenschaft/i.test(String(subject || ""));
+    if (science) return ["ähnlicher Fachbegriff", "verwandter Vorgang", "andere Ursache", "anderes Merkmal"];
+    return ["ähnliche Bedeutung", "verwandter Begriff", "andere Lösung", "ähnliche Antwort"];
+  };
+  const languageNameFromText = (text) => {
+    const value = String(text || "").toLowerCase();
+    if (/franz|french|français|francais/.test(value)) return "Französisch";
+    if (/engl|english/.test(value)) return "Englisch";
+    if (/latein|latin/.test(value)) return "Latein";
+    if (/ital|italien/.test(value)) return "Italienisch";
+    if (/span|españ|espan/.test(value)) return "Spanisch";
+    if (/deutsch|german/.test(value)) return "Deutsch";
+    return "";
+  };
+  const deckLanguageLabels = (meta, cards) => {
+    const joined = [meta?.title, meta?.subtitle, cards?.[0]?.subject, cards?.[0]?.title].join(" ");
+    return {
+      front: languageNameFromText(joined) || "Fremdsprache",
+      back: state.settings.language?.startsWith("de") ? "Deutsch" : "deiner Sprache"
+    };
+  };
+  const testPromptFor = (card, question = {}) => {
+    const direction = question.direction || "front";
+    return direction === "back"
+      ? { prompt: card.answer, expected: card.question, from: "Antwort", to: "Frage" }
+      : { prompt: card.question, expected: card.answer, from: "Frage", to: "Antwort" };
+  };
+  const choiceOptionsForQuestion = (card, question = {}, sourceCards = null) => {
+    const expected = testPromptFor(card, question).expected;
+    const sessionCards = (Array.isArray(sourceCards) ? sourceCards : activeStudyCards()).filter((item) => item.id !== card.id);
+    const sameDeck = sessionCards
+      .filter((item) => item.packId && card.packId ? item.packId === card.packId : (item.title || item.subject) === (card.title || card.subject));
+    const sameSubject = sessionCards.filter((item) => item.subject === card.subject);
+    const pool = [...sameDeck, ...sameSubject]
+      .map((item) => question.direction === "back" ? item.question : item.answer)
+      .filter(Boolean);
+    const options = [expected, ...pool, ...plausibleDistractors(expected, card.subject)]
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)
+      .filter((item, index, list) => list.findIndex((value) => normalizeAnswerText(value) === normalizeAnswerText(item)) === index)
+      .slice(0, 4);
+    while (options.length < 4) options.push(`Option ${options.length + 1}`);
+    return shuffleList(options);
+  };
+  const buildTestQuestions = (cards, setup = {}) => {
+    const useMixed = setup.mixed || (setup.write && setup.choice);
+    const useWrite = setup.write || (!setup.write && !setup.choice);
+    const useChoice = setup.choice || (!setup.write && !setup.choice);
+    const directions = setup.direction === "both" ? ["front", "back"] : [setup.direction || "front"];
+    return cards.map((card, index) => {
+      const direction = directions[index % directions.length];
+      const type = useMixed
+        ? (index % 2 === 0 ? "write" : "choice")
+        : (useChoice && !useWrite ? "choice" : "write");
+      const question = { cardId: card.id, type, direction, options: [] };
+      question.options = type === "choice" ? choiceOptionsForQuestion(card, question, cards) : [];
+      return question;
+    });
+  };
+  const buildLearnQuestions = (cards) => {
+    const choiceCount = Math.max(1, Math.ceil(cards.length / 2));
+    return cards.map((card, index) => {
+      const question = { cardId: card.id, type: index < choiceCount ? "choice" : "write", direction: "front", options: [] };
+      question.options = question.type === "choice" ? choiceOptionsForQuestion(card, question, cards) : [];
+      return question;
+    });
+  };
+  const matchTileId = (side, id) => `${side}:${id}`;
+  const parseMatchTileId = (tileId = "") => {
+    const [side, ...rest] = String(tileId).split(":");
+    return { side, pairId: rest.join(":") };
+  };
+  const matchElapsedSeconds = (session = state.cardStudySession || {}) => {
+    if (!session.matchTimed) return 0;
+    const start = Date.parse(session.matchStartedAt || "");
+    if (!Number.isFinite(start)) return Number(session.matchPenaltySeconds || 0);
+    const end = session.matchCompletedAt ? Date.parse(session.matchCompletedAt) : Date.now();
+    const base = Math.max(0, Math.floor((end - start) / 1000));
+    return base + Number(session.matchPenaltySeconds || 0);
+  };
+  const formatStopwatch = (seconds) => {
+    const total = Math.max(0, Number(seconds || 0));
+    const minutes = Math.floor(total / 60);
+    const secs = total % 60;
+    return `${minutes}:${String(secs).padStart(2, "0")}`;
+  };
   const resetCardStudySession = () => {
     state.cardStudySession = defaultCardStudySession();
     state.activeModeSession = {};
@@ -1815,17 +1964,23 @@
     state.ui.cardStudyIndex = 0;
   };
   const startDeckSession = (modeId) => {
-    const option = learningModeOption(modeId);
+    const normalizedModeId = modeId === "write" || modeId === "choice" ? "learn" : modeId;
+    const option = learningModeOption(normalizedModeId);
     const meta = currentDeckMeta();
     const cards = cardsForLearningMode(option.id);
     if (!cards.length) return;
-    const matchCards = option.id === "match" ? cards.slice(0, Math.min(10, Math.max(2, cards.length))) : [];
+    const matchCards = option.id === "match" ? cards.slice(0, Math.min(8, Math.max(2, cards.length))) : [];
     const allDeckDueIds = baseStudyCards().filter(cardIsDue).map((card) => card.id);
+    const matchTileOrder = option.id === "match"
+      ? shuffleList(matchCards.flatMap((card) => [matchTileId("q", card.id), matchTileId("a", card.id)]))
+      : [];
     const session = {
       choosing: false,
       active: true,
       completed: false,
       mode: option.id,
+      testStarted: option.id !== "test",
+      testSetup: { write: true, choice: true, mixed: true, direction: "front" },
       deckId: meta.id,
       deckTitle: meta.title,
       optionId: option.id,
@@ -1835,17 +1990,20 @@
       reviewedIds: [],
       ratings: [],
       answers: [],
-      testQuestions: option.id === "test" ? buildTestQuestions(cards) : [],
+      testQuestions: option.id === "learn" ? buildLearnQuestions(cards) : [],
       matchPairs: matchCards.map((card) => ({ id: card.id, question: card.question, answer: card.answer, subject: card.subject })),
       promptOrder: shuffleList(matchCards.map((card) => card.id)),
       answerOrder: shuffleList(matchCards.map((card) => card.id)),
+      matchTileOrder,
       matchedIds: [],
       selectedPromptId: "",
       selectedAnswerId: "",
+      selectedMatchTileId: "",
       currentAnswer: "",
       selectedChoice: "",
       awaitingNext: false,
       lastResult: null,
+      lastWrongTileIds: [],
       correct: 0,
       wrong: 0,
       xpEarned: 0,
@@ -1859,6 +2017,10 @@
       mistakesCreated: 0,
       perfect: true,
       wrongAttempts: 0,
+      matchPenaltySeconds: 0,
+      matchStartedAt: option.id === "match" && meta.id !== "due" ? new Date().toISOString() : "",
+      matchCompletedAt: "",
+      matchTimed: option.id === "match" && meta.id !== "due",
       startedAt: new Date().toISOString(),
       summary: null
     };
@@ -1882,6 +2044,9 @@
   const completeDeckSession = () => {
     const session = { ...state.cardStudySession };
     if (!session.active || session.completed) return;
+    if (session.mode === "match" && session.matchTimed && !session.matchCompletedAt) {
+      session.matchCompletedAt = new Date().toISOString();
+    }
     const mode = learningModeOption(session.mode);
     const answers = Array.isArray(session.answers) ? session.answers : [];
     const reviewedIds = Array.isArray(session.reviewedIds) ? session.reviewedIds : [];
@@ -1899,15 +2064,15 @@
     let bonusXp = Number(session.bonusXp || 0);
     let repeatedDeck = false;
     const scorePercent = processed ? Math.round((correct / processed) * 100) : 0;
-    if (session.mode === "test") {
+    if (session.mode === "test" || session.mode === "learn") {
       const scoreBonus = scorePercent >= 80 ? 20 : 0;
       const perfectBonus = scorePercent === 100 && processed > 0 ? 40 : 0;
-      const reward = awardDeckModeReward(session.deckId, session.mode, 50 + scoreBonus + perfectBonus, "Test abgeschlossen", 10);
+      const reward = awardDeckModeReward(session.deckId, session.mode, 50 + scoreBonus + perfectBonus, `${mode.title} abgeschlossen`, 10);
       repeatedDeck = reward.repeated;
       xpEarned += reward.xp;
       deckXp += reward.xp;
       bonusXp += reward.repeated ? 0 : scoreBonus + perfectBonus;
-      state.testResults = [{ id: uid("test"), deckId: session.deckId, deckTitle: session.deckTitle, scorePercent, correct, wrong, xp: reward.xp, date: todayIso() }, ...(state.testResults || [])].slice(0, 80);
+      state.testResults = [{ id: uid("test"), deckId: session.deckId, deckTitle: session.deckTitle, modeId: session.mode, scorePercent, correct, wrong, xp: reward.xp, date: todayIso() }, ...(state.testResults || [])].slice(0, 80);
       recordCardReviewAction(Math.max(1, processed));
     }
     if (session.mode === "match") {
@@ -1917,7 +2082,7 @@
       xpEarned += reward.xp;
       deckXp += reward.xp;
       bonusXp += reward.repeated ? 0 : perfectBonus;
-      state.matchResults = [{ id: uid("match"), deckId: session.deckId, deckTitle: session.deckTitle, pairs: processed, mistakes: Number(session.wrongAttempts || 0), xp: reward.xp, date: todayIso() }, ...(state.matchResults || [])].slice(0, 80);
+      state.matchResults = [{ id: uid("match"), deckId: session.deckId, deckTitle: session.deckTitle, pairs: processed, mistakes: Number(session.wrongAttempts || 0), timeSeconds: matchElapsedSeconds(session), xp: reward.xp, date: todayIso() }, ...(state.matchResults || [])].slice(0, 80);
       recordCardReviewAction(Math.max(1, processed));
     }
     const challengeXp = repeatedDeck ? 0 : completeWeeklyDeckChallenge();
@@ -1947,6 +2112,8 @@
       bonusXp,
       challengeXp,
       mistakesCreated: Number(session.mistakesCreated || 0),
+      matchTimeSeconds: session.mode === "match" ? matchElapsedSeconds(session) : null,
+      matchTimed: Boolean(session.matchTimed),
       nextReviewDate,
       allDueFinished: session.dueCardIds?.length > 0 && session.dueCardIds.every((id) => reviewedIds.includes(id)),
       perfect: wrong === 0,
@@ -2115,20 +2282,86 @@
     const card = cards[index];
     const question = session.testQuestions?.[index] || { type: "write" };
     if (!session.active || !card || session.awaitingNext) return;
-    const correct = question.type === "choice" ? normalizeAnswerText(value) === normalizeAnswerText(card.answer) : answerMatches(value, card.answer);
+    const expected = testPromptFor(card, question).expected;
+    const correct = question.type === "choice" ? normalizeAnswerText(value) === normalizeAnswerText(expected) : answerMatches(value, expected);
     setCardReviewOnly(card, correct ? "good" : "again");
     pushModeAnswer({
       id: uid("answer"),
       cardId: card.id,
       subject: card.subject,
-      question: card.question,
-      correctAnswer: card.answer,
+      question: testPromptFor(card, question).prompt,
+      correctAnswer: expected,
       userAnswer: value,
       correct,
       xp: 0,
       type: question.type,
       savedMistake: false
     });
+  };
+  const startConfiguredTest = (setup = {}) => {
+    const session = state.cardStudySession || {};
+    const cards = activeStudyCards();
+    if (!session.active || session.mode !== "test" || !cards.length) return;
+    const cleanSetup = {
+      write: Boolean(setup.write),
+      choice: Boolean(setup.choice),
+      mixed: Boolean(setup.mixed),
+      direction: ["front", "back", "both"].includes(setup.direction) ? setup.direction : "front"
+    };
+    if (!cleanSetup.write && !cleanSetup.choice && !cleanSetup.mixed) cleanSetup.mixed = true;
+    if (cleanSetup.mixed) {
+      cleanSetup.write = true;
+      cleanSetup.choice = true;
+    }
+    state.cardStudySession = {
+      ...session,
+      testStarted: true,
+      testSetup: cleanSetup,
+      testQuestions: buildTestQuestions(cards, cleanSetup),
+      answers: [],
+      reviewedIds: [],
+      awaitingNext: false,
+      lastResult: null
+    };
+    state.activeModeSession = { ...state.cardStudySession };
+  };
+  const submitFullTest = (form) => {
+    const session = state.cardStudySession || {};
+    const cards = activeStudyCards();
+    if (!session.active || session.mode !== "test" || !session.testStarted) return;
+    const data = formData(form);
+    const answers = cards.map((card, index) => {
+      const question = session.testQuestions?.[index] || { type: "write", direction: "front" };
+      const expected = testPromptFor(card, question).expected;
+      const prompt = testPromptFor(card, question).prompt;
+      const value = String(data[`answer-${index}`] || "").trim();
+      const correct = question.type === "choice" ? normalizeAnswerText(value) === normalizeAnswerText(expected) : answerMatches(value, expected);
+      setCardReviewOnly(card, correct ? "good" : "again");
+      return {
+        id: uid("answer"),
+        cardId: card.id,
+        subject: card.subject,
+        question: prompt,
+        correctAnswer: expected,
+        userAnswer: value || "Keine Antwort",
+        correct,
+        xp: 0,
+        type: question.type,
+        savedMistake: false
+      };
+    });
+    state.cardStudySession = {
+      ...session,
+      answers,
+      reviewedIds: [...new Set(cards.map((card) => card.id))],
+      correct: answers.filter((answer) => answer.correct).length,
+      wrong: answers.filter((answer) => !answer.correct).length,
+      perfect: answers.every((answer) => answer.correct),
+      awaitingNext: false,
+      lastResult: null
+    };
+    state.activeModeSession = { ...state.cardStudySession };
+    completeDeckSession();
   };
   const advanceModeSession = () => {
     const session = state.cardStudySession || {};
@@ -2205,6 +2438,7 @@
   ` : C.emptyState("Keine Karte", "Lade einen Stapel oder erstelle deine erste Karte.");
   const modeIcon = (mode) => ({
     cards: `<span class="mode-symbol mode-symbol-cards" aria-hidden="true"><i></i><i></i><b></b></span>`,
+    learn: `<span class="mode-symbol mode-symbol-learn" aria-hidden="true"><i></i><b></b></span>`,
     write: `<span class="mode-symbol mode-symbol-write" aria-hidden="true"><i></i><b></b></span>`,
     choice: `<span class="mode-symbol mode-symbol-choice" aria-hidden="true"><i></i><b></b></span>`,
     test: `<span class="mode-symbol mode-symbol-test" aria-hidden="true"><i></i><b></b></span>`,
@@ -2249,6 +2483,112 @@
       </section>
     `;
   };
+  const renderTestSetup = (cards) => {
+    const meta = currentDeckMeta();
+    const labels = deckLanguageLabels(meta, cards);
+    return `
+      <section class="test-setup-panel">
+        <article class="session-progress-card">
+          ${C.mascot("mascot-small")}
+          <div>
+            <span class="eyebrow">Test vorbereiten</span>
+            <h2>${C.escapeHtml(meta.title)}</h2>
+            <p>Wähle, wie Lynxly dich abfragen soll. Die Auswertung siehst du erst am Schluss.</p>
+          </div>
+        </article>
+        <form id="test-setup-form" class="test-setup-form">
+          <fieldset>
+            <legend>Frage-Arten</legend>
+            <label class="toggle-field"><input name="write" type="checkbox" checked /><span>Schreiben</span></label>
+            <label class="toggle-field"><input name="choice" type="checkbox" checked /><span>Multiple Choice</span></label>
+            <label class="toggle-field"><input name="mixed" type="checkbox" checked /><span>Gemischt</span></label>
+          </fieldset>
+          <fieldset>
+            <legend>Abfragerichtung</legend>
+            <label class="test-direction-option"><input name="direction" type="radio" value="front" checked /><span>${C.escapeHtml(labels.front)} → ${C.escapeHtml(labels.back)}</span></label>
+            <label class="test-direction-option"><input name="direction" type="radio" value="back" /><span>${C.escapeHtml(labels.back)} → ${C.escapeHtml(labels.front)}</span></label>
+            <label class="test-direction-option"><input name="direction" type="radio" value="both" /><span>Beide Richtungen</span></label>
+          </fieldset>
+          <button class="primary-button" type="submit">Test starten</button>
+        </form>
+      </section>
+    `;
+  };
+  const renderTestQuestionList = (cards) => {
+    const session = state.cardStudySession || {};
+    return `
+      <form id="test-list-form" class="test-list-form">
+        ${cards.map((card, index) => {
+          const question = session.testQuestions?.[index] || { type: "write", direction: "front", options: [] };
+          const prompt = testPromptFor(card, question).prompt;
+          return `
+            <article class="test-list-question">
+              <span>${index + 1}</span>
+              <div>
+                <strong>${C.escapeHtml(prompt)}</strong>
+                <small>${question.type === "choice" ? "Multiple Choice" : "Schreiben"}</small>
+                ${question.type === "choice" ? `
+                  <div class="test-choice-list">
+                    ${(question.options || []).map((option, optionIndex) => `
+                      <label>
+                        <input name="answer-${index}" type="radio" value="${C.escapeHtml(option)}" ${optionIndex === 0 ? "" : ""} />
+                        <span>${C.escapeHtml(option)}</span>
+                      </label>
+                    `).join("")}
+                  </div>
+                ` : `<input name="answer-${index}" autocomplete="off" placeholder="Antwort eingeben" />`}
+              </div>
+            </article>
+          `;
+        }).join("")}
+        <button class="primary-button test-submit-button" type="submit">Test abgeben</button>
+      </form>
+    `;
+  };
+  const matchClassComparison = (ownSeconds) => {
+    const own = Math.max(0, Number(ownSeconds || 0));
+    const demo = [
+      { name: "Mia", seconds: Math.max(28, own - 8), mistakes: 1 },
+      { name: "Leo", seconds: own + 5, mistakes: 2 },
+      { name: "Nora", seconds: own + 14, mistakes: 3 },
+      { name: "Sam", seconds: own + 22, mistakes: 4 }
+    ];
+    return [...demo, { name: "Du", seconds: own, mistakes: Number(state.cardStudySession?.wrongAttempts || 0), you: true }]
+      .sort((a, b) => a.seconds - b.seconds)
+      .map((item, index) => ({ ...item, rank: index + 1 }));
+  };
+  const renderMatchTimeTable = (summary) => {
+    if (!summary.matchTimed || !Number.isFinite(Number(summary.matchTimeSeconds))) return "";
+    const rows = matchClassComparison(summary.matchTimeSeconds);
+    return `
+      <section class="match-time-results">
+        <div class="sleek-section-title"><h2>Zeitvergleich</h2><span>Klasse</span></div>
+        <table>
+          <thead><tr><th>Rang</th><th>Name</th><th>Zeit</th><th>Fehler</th></tr></thead>
+          <tbody>
+            ${rows.map((row) => `<tr class="${row.you ? "you" : ""}"><td>${row.rank}</td><td>${C.escapeHtml(row.name)}</td><td>${formatStopwatch(row.seconds)}</td><td>${row.mistakes}</td></tr>`).join("")}
+          </tbody>
+        </table>
+      </section>
+    `;
+  };
+  const renderTestResultChart = (summary) => {
+    if (summary.modeId !== "test") return "";
+    const correct = Number(summary.correct || 0);
+    const wrong = Number(summary.wrong || 0);
+    const total = Math.max(1, correct + wrong);
+    const percent = Math.round((correct / total) * 100);
+    return `
+      <section class="test-result-chart">
+        <div class="pie-chart" style="--correct:${percent}%"><strong>${percent}%</strong><span>richtig</span></div>
+        <div>
+          <span class="eyebrow">Test-Auswertung</span>
+          <h2>${correct} richtig · ${wrong} falsch</h2>
+          <p>Grün zeigt richtige Antworten, rot zeigt Fehler. Falsche Antworten kannst du unten in die Fehlerbank übernehmen.</p>
+        </div>
+      </section>
+    `;
+  };
   const renderDeckSessionSummary = () => {
     const session = state.cardStudySession || {};
     const summary = session.summary || {};
@@ -2278,6 +2618,8 @@
           <article><span>Bonus-XP</span><strong>${Number(summary.bonusXp || 0)}</strong></article>
           <article><span>Fehler gespeichert</span><strong>${Number(summary.mistakesCreated || 0)}</strong></article>
         </div>
+        ${renderTestResultChart(summary)}
+        ${renderMatchTimeTable(summary)}
         ${wrongAnswers.length ? `<section class="wrong-answer-list"><h2>Fehler aus dieser Runde</h2>${wrongAnswers.map((answer) => `<article><strong>${C.escapeHtml(answer.question)}</strong><p>Deine Antwort: ${C.escapeHtml(answer.userAnswer || "Keine Antwort")}</p><p>Richtig: ${C.escapeHtml(answer.correctAnswer)}</p><button class="secondary-button save-mode-mistake" data-answer-index="${answer.index}" type="button" ${answer.savedMistake ? "disabled" : ""}>${answer.savedMistake ? "Gespeichert" : "In Fehlerbank speichern"}</button></article>`).join("")}</section>` : ""}
         <div class="session-summary-line">
           <span>Nächste Wiederholung</span>
@@ -2325,7 +2667,7 @@
   };
   const renderChoiceMode = (card, index, cards) => {
     const session = state.cardStudySession || {};
-    const options = session.mode === "test"
+    const options = session.mode === "test" || session.mode === "learn"
       ? (session.testQuestions?.[index]?.options || choiceOptionsForCard(card))
       : choiceOptionsForCard(card);
     const isLast = index >= cards.length - 1;
@@ -2352,27 +2694,23 @@
     const pairs = session.matchPairs || [];
     const pairMap = new Map(pairs.map((pair) => [pair.id, pair]));
     const matched = new Set(session.matchedIds || []);
+    const wrongTiles = new Set(session.lastWrongTileIds || []);
+    const order = (session.matchTileOrder?.length ? session.matchTileOrder : shuffleList(pairs.flatMap((pair) => [matchTileId("q", pair.id), matchTileId("a", pair.id)])));
     return `
+      ${session.matchTimed ? `<article class="match-stopwatch"><span>Stoppuhr</span><strong>${formatStopwatch(matchElapsedSeconds(session))}</strong><small>${Number(session.matchPenaltySeconds || 0) ? `+${Number(session.matchPenaltySeconds || 0)} Strafsek.` : "Jeder Fehler +1 Sekunde"}</small></article>` : ""}
       <article class="mode-question-card">
         <small>Zuordnen</small>
         <h2>Verbinde Begriff und Lösung.</h2>
         <p>${matched.size} / ${pairs.length} Paare geschafft</p>
       </article>
-      <div class="match-board">
-        <div>
-          <span>Fragen</span>
-          ${(session.promptOrder || []).map((id) => {
-            const pair = pairMap.get(id);
-            return `<button class="match-tile mode-match-prompt ${session.selectedPromptId === id ? "selected" : ""}" data-id="${id}" type="button" ${matched.has(id) ? "disabled" : ""}>${C.escapeHtml(pair?.question || "")}</button>`;
-          }).join("")}
-        </div>
-        <div>
-          <span>Antworten</span>
-          ${(session.answerOrder || []).map((id) => {
-            const pair = pairMap.get(id);
-            return `<button class="match-tile mode-match-answer ${session.selectedAnswerId === id ? "selected" : ""}" data-id="${id}" type="button" ${matched.has(id) ? "disabled" : ""}>${C.escapeHtml(pair?.answer || "")}</button>`;
-          }).join("")}
-        </div>
+      <div class="match-grid-board" aria-label="Zuordnungsgrid">
+        ${order.filter((tileId) => !matched.has(parseMatchTileId(tileId).pairId)).map((tileId) => {
+          const parsed = parseMatchTileId(tileId);
+          const pair = pairMap.get(parsed.pairId);
+          const text = parsed.side === "q" ? pair?.question : pair?.answer;
+          const selected = session.selectedMatchTileId === tileId;
+          return `<button class="match-grid-tile mode-match-tile ${selected ? "selected" : ""} ${wrongTiles.has(tileId) ? "wrong" : ""}" data-tile-id="${C.escapeHtml(tileId)}" type="button">${C.escapeHtml(text || "")}</button>`;
+        }).join("")}
       </div>
       ${session.lastResult ? `<div class="mode-feedback ${session.lastResult.correct ? "correct" : "wrong"}" aria-live="polite"><strong>${session.lastResult.correct ? "Passt!" : "Noch nicht. Versuch ein anderes Paar."}</strong></div>` : ""}
     `;
@@ -2413,7 +2751,8 @@
           </div>` : ""}` : ""}
         ${session.mode === "write" && card ? renderWriteMode(card, index, cards) : ""}
         ${session.mode === "choice" && card ? renderChoiceMode(card, index, cards) : ""}
-        ${session.mode === "test" && card ? renderTestMode(card, index, cards) : ""}
+        ${session.mode === "learn" && card ? renderTestMode(card, index, cards) : ""}
+        ${session.mode === "test" ? (session.testStarted ? renderTestQuestionList(cards) : renderTestSetup(cards)) : ""}
         ${session.mode === "match" ? renderMatchMode() : ""}
       </section>
     `;
@@ -2434,6 +2773,30 @@
       ${state.ui.cardCreateMode === "self" ? `<form class="panel form-panel" id="card-form"><label>Titel / Fach<input name="subject" required placeholder="z. B. Französisch UNIT 1" /></label><label>Frage<textarea name="question" required rows="3"></textarea></label><label>Antwort<textarea name="answer" required rows="3"></textarea></label><label>Status<select name="difficulty"><option value="1">Gut</option><option value="2" selected>Okay</option><option value="3">Schlecht</option></select></label><button class="primary-button" type="submit">Karte speichern</button></form>` : ""}
     </section>
   `;
+  const recentDeckAttrs = (entry) => {
+    const deckId = String(entry?.deckId || "");
+    if (deckId === "due") return `data-stack="due"`;
+    if (deckId.startsWith("personal:")) return `data-stack="personal" data-subject="${C.escapeHtml(deckId.slice("personal:".length) || entry.deckTitle || "")}"`;
+    if (deckId.startsWith("recommended:")) return `data-stack="library" data-pack-id="${C.escapeHtml(deckId.slice("recommended:".length))}"`;
+    return `data-stack="personal" data-subject="${C.escapeHtml(entry?.deckTitle || "")}"`;
+  };
+  const renderRecentDeck = () => {
+    const recent = (state.deckSessionHistory || [])[0];
+    if (!recent) return "";
+    return `
+      <section class="recent-deck-section">
+        <div class="sleek-section-title cards-recent-title"><h2>Zuletzt genutzt</h2><span>${C.escapeHtml(recent.mode || learningModeOption(recent.modeId).title)}</span></div>
+        <button class="recent-deck-row" ${recentDeckAttrs(recent)} type="button">
+          <div class="mini-deck-stack"><i></i><i></i><i></i></div>
+          <div>
+            <strong>${C.escapeHtml(recent.deckTitle || "Letzter Stapel")}</strong>
+            <small>${C.escapeHtml(recent.mode || learningModeOption(recent.modeId).title)} · ${Number(recent.cardsReviewed || 0)} Karten · ${Number(recent.scorePercent || 0)}%</small>
+          </div>
+          <em>Öffnen</em>
+        </button>
+      </section>
+    `;
+  };
 
   const renderCards = () => {
     if (state.ui.cardStudyOpen) return renderCardStudyView();
@@ -2480,6 +2843,7 @@
         ${renderStack("Heute fällig", "Spaced Repetition", dueCount, "due", dueCount ? "Starten" : "Leer")}
         ${renderStack("Fehlerbank", "Offene Fehler wiederholen", mistakeCount, "mistakes", "Öffnen")}
       </section>
+      ${renderRecentDeck()}
       </section>
     `;
   };
@@ -3011,10 +3375,20 @@
   };
 
   const scrollAiConversation = () => {
-    requestAnimationFrame(() => {
+    const scrollToBottom = () => {
       const output = document.querySelector(".ai-output");
-      if (output) output.scrollTop = output.scrollHeight;
+      if (output) {
+        output.scrollTop = output.scrollHeight;
+        const messages = output.querySelectorAll(".chat-message-user, .chat-message-ai");
+        const latest = messages[messages.length - 1];
+        latest?.scrollIntoView({ block: "end", behavior: "auto" });
+      }
       document.querySelector("#chat-input")?.focus({ preventScroll: true });
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" });
+    };
+    requestAnimationFrame(() => {
+      scrollToBottom();
+      requestAnimationFrame(scrollToBottom);
     });
   };
 
@@ -3163,9 +3537,9 @@
     return { rank: rank || rows.length, total: rows.length, tier: tierById(state.leagueTier) };
   };
   const classLeagueResult = (index) => {
-    if (index < 3) return { id: "podium", title: `${index + 1}. Platz`, text: "Podest · Level-up" };
-    if (index < 5) return { id: "level-up", title: "Top 5", text: "Level-up" };
-    return { id: "stay", title: "Dabei", text: "Bleibt in der Liga" };
+    if (index < 3) return { id: "podium", title: `${index + 1}. Platz`, text: "Aufstieg · Top 3" };
+    if (index < 7) return { id: "stay", title: "Bleibt", text: "Bleibt in der Liga" };
+    return { id: "demote", title: "Abstieg", text: "Wird heruntergestuft" };
   };
   const podiumTrophy = (place) => `
     <svg class="podium-trophy trophy-${place}" viewBox="0 0 64 64" aria-hidden="true">
@@ -3210,7 +3584,7 @@
   };
   const renderProgressPersonal = () => {
     const progress = levelProgress();
-    const currentTier = tierForXp(state.xpTotal);
+    const currentTier = tierById(state.leagueTier);
     const records = state.personalRecords;
     const mascotLine = Number(state.xpThisWeek || 0) > 0
       ? "Lynxly sagt: Du baust diese Woche echte Lernroutine auf. Bleib scharf."
@@ -3221,7 +3595,7 @@
           <div class="level-card-top">
             <div>
               <span>Aktuelle Liga</span>
-              <h2>${C.escapeHtml(currentTier.name)}</h2>
+              <div class="league-title-row">${leagueSymbol(currentTier.id)}</div>
               <p>${progress.next ? `${progress.remaining} XP fehlen bis zum nächsten Ziel: ${C.escapeHtml(progress.next.title)}` : "Höchstes Ziel für dieses MVP erreicht"}</p>
             </div>
             ${C.mascot("mascot-small")}
@@ -3232,7 +3606,7 @@
             <span>${C.escapeHtml(progress.next?.title || currentTier.name)}</span>
           </div>
           ${progressBar(Number(state.xpTotal || 0) - progress.current.min, progress.end - progress.current.min, `Fortschritt bis ${progress.next ? progress.next.title : currentTier.name}`, "large")}
-          <div class="xp-meta"><strong>${state.xpThisWeek} XP diese Woche</strong><span>${state.xpTotal} XP gesamt</span><span>Rang ${classRankInfo().rank} · ${C.escapeHtml(classRankInfo().tier.name)}</span></div>
+          <div class="xp-meta"><strong>${state.xpThisWeek} XP diese Woche</strong><span>${state.xpTotal} XP gesamt</span><span>Rang ${classRankInfo().rank} ${leagueSymbol(classRankInfo().tier.id)}</span></div>
         </article>
         <article class="mascot-card progress-mascot-card">${C.mascot("mascot-small")}<p>${C.escapeHtml(mascotLine)}</p></article>
         <section class="progress-stat-grid">
@@ -3297,32 +3671,20 @@
     const totals = classTeamTotals();
     const goals = state.classLeague.goals || {};
     const tier = tierById(state.leagueTier);
-    const mascotText = ownRank > 4
-      ? "Lynxly sagt: Eine Karte reicht, um wieder reinzukommen. Kleine Schritte zählen."
-      : "Lynxly sagt: Du bist diese Woche stärker geworden. Bleib scharf.";
     return `
       <section class="class-league-page">
         <article class="class-league-hero">
           <div>
             <span>${C.escapeHtml(state.classLeague.demoLabel || "Demo-Klassenliga · lokal gespeichert")}</span>
             <h2>${C.escapeHtml(state.classLeague.className || "Klasse")}</h2>
-            <p>${C.escapeHtml(tier.name)} · Woche ${isoWeekNumber()} · Rang ${ownRank || "–"}</p>
+            <p>Woche ${isoWeekNumber()} · Rang ${ownRank || "–"}</p>
           </div>
-          <strong class="league-badge">${C.escapeHtml(tier.name)}</strong>
+          <strong class="league-badge">${leagueSymbol(tier.id)}</strong>
         </article>
-        <form class="panel class-league-form" id="class-league-form">
-          <div class="panel-header"><div><span>Privatsphäre</span><h2>Klassenliga beitreten</h2></div>${C.icon("lock")}</div>
-          <label>Klassen-Code<input name="classCode" value="${C.escapeHtml(state.classCode || state.classLeague.classCode || "LYNX-2B")}" placeholder="LYNX-2B" /></label>
-          <label>Anzeigename<input name="displayName" maxlength="24" value="${C.escapeHtml(state.classLeaguePrivacy.displayName || state.user.name || "Du")}" placeholder="z. B. Max" /></label>
-          <label class="toggle-field"><input name="joined" type="checkbox" value="on" ${state.classLeaguePrivacy.joined ? "checked" : ""} /><span>Klassenliga nutzen</span><small>Aktuell lokal als Demo gespeichert.</small></label>
-          <label class="toggle-field"><input name="visible" type="checkbox" value="on" ${state.classLeaguePrivacy.visible ? "checked" : ""} /><span>Mich in der Klassenliga anzeigen</span><small>Nur XP und Lernaktionen, keine Noten oder E-Mail.</small></label>
-          <button class="secondary-button" type="submit">Klassenliga speichern</button>
-        </form>
-        <article class="mascot-card progress-mascot-card">${C.mascot("mascot-small")}<p>${C.escapeHtml(mascotText)}</p></article>
         <article class="class-podium-card">
-          <div class="panel-header"><div><span>Wochenfinale</span><h2>Podest und Level-up</h2></div><strong>Top 5 steigen auf</strong></div>
+          <div class="panel-header"><div><span>Wochenfinale</span><h2>Podest und Aufstieg</h2></div><strong>Top 3 steigen auf</strong></div>
           ${renderClassPodium(rows)}
-          <p>Am Ende der Woche kommen Platz 1, 2 und 3 aufs Podest. Die ersten fünf steigen eine Liga hoch.</p>
+          <p>Am Ende der Woche kommen Platz 1, 2 und 3 aufs Podest und steigen eine Liga hoch. Platz 4 bis 7 bleibt. Alle darunter werden heruntergestuft.</p>
         </article>
         <div class="leaderboard-mode-pill" aria-label="Klassenliga nach XP sortiert">XP Leaderboard</div>
         <section class="leaderboard-list class-league-list" aria-label="Wochenranking der Klassenliga">
@@ -3347,8 +3709,7 @@
           <div class="team-goal-row"><span>Lerneinheiten</span><strong>${totals.studySessions} / ${goals.studySessions}</strong>${progressBar(totals.studySessions, goals.studySessions, "Klassenziel Lerneinheiten")}</div>
           <p>${state.classLeague.bonusAwarded ? "Klassenbonus geschafft. Stark zusammen gelernt." : "Wenn alle Ziele erfüllt sind, bekommt deine lokale Demo-Klasse den Bonus."}</p>
         </section>
-        <article class="privacy-note-card">${C.icon("lock")} <span>Klassenliga ist opt-in. Gezeigt werden nur sichere Lernwerte: XP, Karten, Fehler, Sessions und Verbesserungswert.</span></article>
-        <article class="league-reset-note"><strong>Wöchentlicher Neustart</strong><span>Platz 1 bis 3 stehen auf dem Podest. Die ersten fünf steigen eine Liga hoch. Alle anderen bleiben ruhig dabei und können nächste Woche neu angreifen.</span></article>
+        <article class="league-reset-note"><strong>Wöchentlicher Neustart</strong><span>Top 3 steigen eine Liga auf. Platz 4 bis 7 bleibt. Alle darunter werden heruntergestuft, aber jede Woche startet frisch.</span></article>
       </section>
     `;
   };
@@ -3430,6 +3791,14 @@
             <label class="toggle-field"><input name="visible" type="checkbox" value="on" ${state.leaderboardPrivacy.visible ? "checked" : ""} /><span>Mich in der Freunde Challenge anzeigen</span><small>Es werden nur Lernaktionen gezeigt, niemals Noten oder E-Mail.</small></label>
             <button class="secondary-button" type="submit">Privatsphäre speichern</button>
           </form>
+          <form class="panel leaderboard-privacy-card class-league-form" id="class-league-form">
+            <div class="panel-header"><div><span>Klassenliga</span><h2>Privatsphäre</h2></div>${C.icon("lock")}</div>
+            <label>Klassen-Code<input name="classCode" value="${C.escapeHtml(state.classCode || state.classLeague.classCode || "LYNX-2B")}" placeholder="LYNX-2B" /></label>
+            <label>Anzeigename<input name="displayName" maxlength="24" value="${C.escapeHtml(state.classLeaguePrivacy.displayName || state.user.name || "Du")}" placeholder="z. B. Max" /></label>
+            <label class="toggle-field"><input name="joined" type="checkbox" value="on" ${state.classLeaguePrivacy.joined ? "checked" : ""} /><span>Klassenliga nutzen</span><small>Aktuell lokal als Demo gespeichert.</small></label>
+            <label class="toggle-field"><input name="visible" type="checkbox" value="on" ${state.classLeaguePrivacy.visible ? "checked" : ""} /><span>Mich in der Klassenliga anzeigen</span><small>Nur XP und Lernaktionen, keine Noten oder E-Mail.</small></label>
+            <button class="secondary-button" type="submit">Klassenliga speichern</button>
+          </form>
           <button class="design-toggle-button" type="button">${C.icon("palette")} Design anpassen</button>
           ${renderDesignPanel()}
           <button class="danger-logout settings-logout" type="button">${C.icon("trash")} Ausloggen</button>
@@ -3440,6 +3809,10 @@
 
   const render = () => {
     ensureCollections();
+    if (matchTimer) {
+      clearInterval(matchTimer);
+      matchTimer = null;
+    }
     applyTheme();
     const route = getRoute();
     if (route !== location.hash.replace("#", "") && location.hash) location.hash = route;
@@ -3449,6 +3822,11 @@
     app.innerHTML = state.user.loggedIn ? views[route]() : renderOnboarding();
     requestAnimationFrame(() => app.classList.add("page-enter"));
     bindEvents(route);
+    if (route === "cards" && state.cardStudySession?.active && state.cardStudySession.mode === "match" && state.cardStudySession.matchTimed) {
+      matchTimer = window.setInterval(() => {
+        if (getRoute() === "cards" && state.cardStudySession?.active && state.cardStudySession.mode === "match" && state.cardStudySession.matchTimed) render();
+      }, 1000);
+    }
     if (route === "bot") scrollAiConversation();
     else window.scrollTo({ top: 0, behavior: "auto" });
   };
@@ -3641,13 +4019,14 @@
         combo?.classList.remove("open");
         combo?.querySelector(".subject-suggest-toggle")?.setAttribute("aria-expanded", "false");
       });
-      document.querySelectorAll(".grade-folder").forEach((button) => button.addEventListener("click", () => {
-        const row = button.closest(".subject-folder-row");
-        if (row?.dataset.swiped === "true") {
+      const openGradeSubject = (subjectId, row = null) => {
+        if (!subjectId) return;
+        if (row) {
+          row.classList.remove("show-actions");
           delete row.dataset.swiped;
-          return;
+          delete row.dataset.swipedAt;
         }
-        state.ui.selectedGradeSubject = button.dataset.id;
+        state.ui.selectedGradeSubject = subjectId;
         state.ui.selectedPartialGroup = null;
         state.ui.showSubjectForm = false;
         state.ui.showGradeEntryForm = false;
@@ -3656,6 +4035,21 @@
         state.ui.editingGradeId = "";
         save();
         render();
+      };
+      document.querySelectorAll(".grade-folder").forEach((button) => button.addEventListener("click", () => {
+        const row = button.closest(".subject-folder-row");
+        const swipedAt = Number(row?.dataset.swipedAt || 0);
+        if (row?.dataset.swiped === "true" && Date.now() - swipedAt < 350) {
+          delete row.dataset.swiped;
+          delete row.dataset.swipedAt;
+          return;
+        }
+        if (row) {
+          row.classList.remove("show-actions");
+          delete row.dataset.swiped;
+          delete row.dataset.swipedAt;
+        }
+        openGradeSubject(button.dataset.id || row?.dataset.subjectId, row);
       }));
       document.querySelectorAll(".delete-subject").forEach((button) => button.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -3940,6 +4334,7 @@
         let currentOffset = 0;
         let dragging = false;
         let moved = false;
+        let tapCanceled = false;
         const swipeWidth = 90;
         const setSwipeOffset = (value) => {
           currentOffset = Math.max(0, Math.min(swipeWidth, value));
@@ -3951,11 +4346,15 @@
           dragging = false;
           row.classList.remove("swiping");
           row.style.removeProperty("--swipe-offset");
-          const openedActions = currentOffset > swipeWidth * 0.28;
+          if (row.classList.contains("subject-folder-row") && !moved && !tapCanceled) {
+            openGradeSubject(row.dataset.subjectId || row.querySelector(".grade-folder")?.dataset.id, row);
+            return;
+          }
+          const openedActions = moved && currentOffset > swipeWidth * 0.38;
           row.classList.toggle("show-actions", openedActions);
-          if (openedActions || (startOffset > 0 && moved)) {
+          if (openedActions) {
             row.dataset.swiped = "true";
-            window.setTimeout(() => delete row.dataset.swiped, 120);
+            row.dataset.swipedAt = String(Date.now());
           }
         };
         row.addEventListener("pointerdown", (event) => {
@@ -3967,14 +4366,17 @@
           currentOffset = startOffset;
           dragging = true;
           moved = false;
+          tapCanceled = false;
           row.setPointerCapture?.(event.pointerId);
         });
         row.addEventListener("pointermove", (event) => {
           if (!dragging) return;
           const deltaX = startX - (event.clientX || startX);
           const deltaY = Math.abs(startY - (event.clientY || startY));
-          if (Math.abs(deltaX) < 5 && deltaY > 8) return;
-          if (Math.abs(deltaX) > 12) moved = true;
+          if (Math.abs(deltaX) > 10 || deltaY > 10) tapCanceled = true;
+          if (Math.abs(deltaX) < 12 && deltaY < 10) return;
+          if (deltaY > Math.abs(deltaX) + 8) return;
+          if (Math.abs(deltaX) > 16) moved = true;
           if (moved) event.preventDefault();
           setSwipeOffset(startOffset + deltaX);
         });
@@ -4107,10 +4509,28 @@
         save();
         render();
       }));
+      document.querySelector("#test-setup-form")?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const data = formData(event.currentTarget);
+        startConfiguredTest({
+          write: data.write === "on",
+          choice: data.choice === "on",
+          mixed: data.mixed === "on",
+          direction: data.direction || "front"
+        });
+        save();
+        render();
+      });
+      document.querySelector("#test-list-form")?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        submitFullTest(event.currentTarget);
+        save();
+        render();
+      });
       document.querySelector(".mode-answer-form")?.addEventListener("submit", (event) => {
         event.preventDefault();
         const data = formData(event.currentTarget);
-        if (state.cardStudySession?.mode === "test") {
+        if (state.cardStudySession?.mode === "test" || state.cardStudySession?.mode === "learn") {
           answerTestQuestion(data.answer || "");
         } else {
           answerCurrentCard(data.answer || "");
@@ -4120,7 +4540,7 @@
       });
       document.querySelectorAll(".choice-option").forEach((button) => button.addEventListener("click", () => {
         const answer = button.dataset.answer || button.textContent || "";
-        if (state.cardStudySession?.mode === "test") {
+        if (state.cardStudySession?.mode === "test" || state.cardStudySession?.mode === "learn") {
           answerTestQuestion(answer);
         } else {
           answerChoiceCard(answer);
@@ -4135,6 +4555,46 @@
       });
       document.querySelectorAll(".save-mode-mistake").forEach((button) => button.addEventListener("click", () => {
         saveModeMistake(button.dataset.answerIndex);
+        save();
+        render();
+      }));
+      document.querySelectorAll(".mode-match-tile").forEach((button) => button.addEventListener("click", () => {
+        const session = state.cardStudySession || {};
+        if (!session.active || session.mode !== "match") return;
+        const tileId = button.dataset.tileId || "";
+        const selected = session.selectedMatchTileId || "";
+        if (!selected) {
+          state.cardStudySession = { ...session, selectedMatchTileId: tileId, lastWrongTileIds: [], lastResult: null };
+          state.activeModeSession = { ...state.cardStudySession };
+          save();
+          render();
+          return;
+        }
+        if (selected === tileId) {
+          state.cardStudySession = { ...session, selectedMatchTileId: "", lastWrongTileIds: [], lastResult: null };
+          state.activeModeSession = { ...state.cardStudySession };
+          save();
+          render();
+          return;
+        }
+        const first = parseMatchTileId(selected);
+        const second = parseMatchTileId(tileId);
+        const correct = first.pairId === second.pairId && first.side !== second.side;
+        const matchedIds = correct ? [...new Set([...(session.matchedIds || []), first.pairId])] : [...(session.matchedIds || [])];
+        state.cardStudySession = {
+          ...session,
+          matchedIds,
+          selectedMatchTileId: "",
+          selectedPromptId: "",
+          selectedAnswerId: "",
+          wrongAttempts: Number(session.wrongAttempts || 0) + (correct ? 0 : 1),
+          matchPenaltySeconds: Number(session.matchPenaltySeconds || 0) + (correct ? 0 : 1),
+          lastWrongTileIds: correct ? [] : [selected, tileId],
+          lastResult: { correct }
+        };
+        state.activeModeSession = { ...state.cardStudySession };
+        if (correct) setCardReviewOnly(activeStudyCards().find((card) => card.id === first.pairId), "good");
+        if (matchedIds.length >= Number(session.target || session.matchPairs?.length || 0)) completeDeckSession();
         save();
         render();
       }));
