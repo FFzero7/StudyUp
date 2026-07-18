@@ -1,5 +1,0 @@
-@media (min-width: 900px) {
-  .main-content {
-    padding-inline: 24px;
-  }
-}
